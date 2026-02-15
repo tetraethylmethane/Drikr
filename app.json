@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Drikr",
+    "slug": "Drikr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#22c55e",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.Drikr.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#22c55e"
+      },
+      "package": "com.Drikr.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    }
+  }
+}

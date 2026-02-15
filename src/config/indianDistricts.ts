@@ -1,0 +1,31 @@
+const indianDistricts: Record<string, string[]> = {
+  "Andhra Pradesh": ["Chittor","Cuddapah","East Godavari","Guntur","Kurnool","Nellore","West Godavari","Anantapur"],
+  "Arunachal Pradesh": ["Lower Subansiri"],
+  "Bihar": ["Banka","Bhojpur","Rohtas"],
+  "Chandigarh": ["Chandigarh"],
+  "Chattisgarh": ["Balod","Bilaspur","Durg","Gariyaband","Kabirdham","Raipur","Rajnandgaon","Janjgir","Jashpur","Kanker","Raigarh","Dantewada","Mahasamund","Balodabazar","Koria","Korba","Mungeli"],
+  "Goa": ["South Goa","North Goa"],
+  "Gujarat": ["Ahmedabad","Amreli","Anand","Banaskanth","Bharuch","Bhavnagar","Chhota Udaipur","Dahod","Devbhumi Dwarka","Gandhinagar","Gir Somnath","Jamnagar","Junagarh","Kachchh","Kheda","Mehsana","Morbi","Navsari","Patan","Porbandar","Rajkot","Sabarkantha","Surat","Surendranagar","Vadodara(Baroda)","Valsad"],
+  "Haryana": ["Ambala","Faridabad","Fatehabad","Gurgaon","Hissar","Jhajar","Jind","Kaithal","Karnal","Kurukshetra","Mahendragarh-Narnaul","Mewat","Palwal","Panipat","Rohtak","Sirsa","Sonipat","Yamuna Nagar","Bhiwani","Panchkula","Rewari"],
+  "Himachal Pradesh": ["Bilaspur","Chamba","Hamirpur","Kangra","Kullu","Mandi","Shimla","Sirmore","Solan","Una"],
+  "Jammu and Kashmir": ["Badgam","Baramulla","Jammu","Kathua","Pulwama","Udhampur"],
+  "Karnataka": ["Bangalore","Chamrajnagar","Chitradurga","Dharwad","Kolar","Koppal","Mandya","Mysore","Shimoga","Chikmagalur","Davangere","Karwar(Uttar Kannad)","Udupi","Bijapur"],
+  "Kerala": ["Alappuzha","Ernakulam","Kannur","Kasargod","Kollam","Kottayam","Kozhikode(Calicut)","Malappuram","Palakad","Pathanamthitta","Thirssur","Thiruvananthapuram","Wayanad","Idukki"],
+  "Madhya Pradesh": ["Alirajpur","Ashoknagar","Badwani","Balaghat","Betul","Bhind","Bhopal","Burhanpur","Chhatarpur","Chhindwara","Damoh","Datia","Dewas","Dhar","Dindori","Guna","Gwalior","Harda","Hoshangabad","Indore","Jabalpur","Jhabua","Katni","Khandwa","Khargone","Mandla","Mandsaur","Morena","Narsinghpur","Neemuch","Panna","Raisen","Rajgarh","Ratlam","Rewa","Sagar","Satna","Sehore","Seoni","Shajapur","Sheopur","Shivpuri","Tikamgarh","Ujjain","Vidisha","Anupur","Shehdol","Sidhi","Umariya","Singroli"],
+  "Maharashtra": ["Ahmednagar","Akola","Amarawati","Beed","Buldhana","Chandrapur","Chattrapati Sambhajinagar","Dharashiv(Usmanabad)","Dhule","Jalana","Jalgaon","Kolhapur","Latur","Mumbai","Nagpur","Nanded","Nandurbar","Nashik","Parbhani","Pune","Raigad","Ratnagiri","Sangli","Sholapur","Thane","Vashim","Yavatmal","Satara","Gadchiroli","Gondiya","Hingoli","Wardha"],
+  "Manipur": ["Imphal East"],
+  "Meghalaya": ["South West Khasi Hills","East Khasi Hills","South Garo Hills"],
+  "NCT of Delhi": ["Delhi"],
+  "Nagaland": ["Dimapur","Kohima","Phek"],
+  "Odisha": ["Balasore","Bargarh","Dhenkanal","Gajapati","Ganjam","Jagatsinghpur","Kendrapara","Khurda","Mayurbhanja","Nayagarh","Rayagada","Sundergarh","Boudh","Jharsuguda","Kalahandi","Kandhamal","Keonjhar","Puri"],
+  "Punjab": ["Amritsar","Bhatinda","Fatehgarh","Fazilka","Ferozpur","Gurdaspur","Hoshiarpur","Jalandhar","kapurthala","Ludhiana","Moga","Mohali","Muktsar","Patiala","Ropar (Rupnagar)","Sangrur","Tarntaran","Barnala","Nawanshahr","Mansa","Faridkot"],
+  "Rajasthan": ["Ajmer","Barmer","Beawar","Bundi","Dausa","Ganganagar","Jaipur","Jaipur Rural","Jalore","Jhalawar","Jodhpur","Karauli","Kota","Pratapgarh","Tonk","Udaipur","Balotra","Baran","Churu","Deeg","Hanumangarh","Jodhpur Rural","Sikar","Bharatpur","Dungarpur","Jhunjhunu","Sanchore","Sirohi"],
+  "Tamil Nadu": ["Ariyalur","Chengalpattu","Coimbatore","Cuddalore","Dharmapuri","Dindigul","Erode","Kallakuruchi","Kancheepuram","Karur","Krishnagiri","Madurai","Nagapattinam","Nagercoil (Kannyiakumari)","Namakkal","Perambalur","Pudukkottai","Ramanathapuram","Ranipet","Salem","Sivaganga","Tenkasi","Thanjavur","The Nilgiris","Theni","Thiruchirappalli","Thirunelveli","Thirupathur","Thirupur","Thiruvannamalai","Thiruvarur","Thiruvellore","Tuticorin","Vellore","Villupuram","Virudhunagar"],
+  "Telangana": ["Adilabad","Hyderabad","Karimnagar","Khammam","Mahbubnagar","Medak","Nalgonda","Ranga Reddy","Warangal"],
+  "Tripura": ["Dhalai","Gomati","Khowai","North Tripura","Sepahijala","West District","South District","Unokoti"],
+  "Uttar Pradesh": ["Agra","Aligarh","Ambedkarnagar","Amethi","Amroha","Auraiya","Azamgarh","Badaun","Baghpat","Bahraich","Ballia","Balrampur","Banda","Barabanki","Bareilly","Basti","Bijnor","Bulandshahar","Chandauli","Deoria","Etah","Etawah","Farukhabad","Fatehpur","Firozabad","Gautam Budh Nagar","Ghaziabad","Ghazipur","Gonda","Gorakhpur","Hardoi","Hathras","Jalaun (Orai)","Jaunpur","Jhansi","Kannuj","Kanpur","Kanpur Dehat","Kasganj","Kaushambi","Khiri (Lakhimpur)","Kushinagar","Lakhimpur","Lalitpur","Lucknow","Maharajganj","Mahoba","Mainpuri","Mathura","Mau(Maunathbhanjan)","Meerut","Mirzapur","Pillibhit","Pratapgarh","Prayagraj","Raebarelli","Rampur","Saharanpur","Sambhal","Sant Kabir Nagar","Shahjahanpur","Shamli","Shravasti","Siddharth Nagar","Sitapur","Sonbhadra","Unnao","Varanasi"],
+  "Uttrakhand": ["Dehradoon","Garhwal (Pauri)","Haridwar","Nanital","UdhamSinghNagar"],
+  "West Bengal": ["Bankura","Birbhum","Coochbehar","Darjeeling","Hooghly","Howrah","Jalpaiguri","Kolkata","Medinipur(W)","Murshidabad","Nadia","North 24 Parganas","Paschim Bardhaman","Purba Bardhaman","Puruliya","Sounth 24 Parganas","Malda","Uttar Dinajpur","Alipurduar","Jhargram"]
+};
+
+export default indianDistricts;

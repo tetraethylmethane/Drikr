@@ -1,0 +1,109 @@
+{
+  "common": {
+    "welcome": "Welcome to Drikr",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "done": "Done",
+    "back": "Back",
+    "next": "Next",
+    "save": "Save"
+  },
+  "tabs": {
+    "home": "Home",
+    "crop": "Crop",
+    "market": "Market",
+    "community": "Community",
+    "profile": "Profile"
+  },
+  "crop": {
+    "title": "Crop Recommendation",
+    "subtitle": "Get AI-powered crop suggestions",
+    "nValue": "Nitrogen (N)",
+    "pValue": "Phosphorus (P)",
+    "kValue": "Potassium (K)",
+    "temperature": "Temperature (°C)",
+    "humidity": "Humidity (%)",
+    "ph": "pH Level",
+    "rainfall": "Rainfall (mm)",
+    "getRecommendation": "Get Recommendation",
+    "recommended": "Recommended Crop",
+    "confidence": "Confidence",
+    "description": "Description",
+    "idealConditions": "Ideal Growing Conditions"
+  },
+  "disease": {
+    "title": "Disease Detection",
+    "subtitle": "Upload a leaf image to detect diseases",
+    "takePhoto": "Take Photo",
+    "uploadImage": "Upload Image",
+    "detecting": "Detecting disease...",
+    "detected": "Disease Detected",
+    "diseaseName": "Disease",
+    "accuracy": "Accuracy",
+    "cure": "Cure Methods",
+    "prevention": "Prevention Tips"
+  },
+  "pest": {
+    "title": "Pest Detection",
+    "subtitle": "Identify pests and get control methods",
+    "detected": "Pest Detected",
+    "pestName": "Pest Name",
+    "affectedCrop": "Affected Crop",
+    "remedies": "Remedies",
+    "naturalControl": "Natural Control"
+  },
+  "market": {
+    "title": "Market Prices",
+    "subtitle": "Real-time crop prices",
+    "todayPrice": "Today's Price",
+    "trend7days": "7 Day Trend",
+    "price": "Price",
+    "trendUp": "Trending Up",
+    "trendDown": "Trending Down",
+    "stable": "Stable",
+    "lastUpdated": "Last Updated"
+  },
+  "profit": {
+    "title": "Profit & Loss Analysis",
+    "subtitle": "Calculate your farming profitability",
+    "cropName": "Crop Name",
+    "area": "Area (acres)",
+    "fertilizerCost": "Fertilizer Cost (₹)",
+    "laborCost": "Labor Cost (₹)",
+    "irrigationCost": "Irrigation Cost (₹)",
+    "marketPrice": "Market Price per kg (₹)",
+    "calculate": "Calculate",
+    "results": "Analysis Results",
+    "estimatedYield": "Estimated Yield",
+    "totalCost": "Total Cost",
+    "expectedRevenue": "Expected Revenue",
+    "profit": "Profit",
+    "loss": "Loss",
+    "highProfit": "High Profit Crop",
+    "lowMargin": "Low Margin Risk",
+    "lossWarning": "Loss Warning"
+  },
+  "voice": {
+    "title": "Voice Assistant",
+    "listening": "Listening...",
+    "processing": "Processing...",
+    "speakNow": "Speak Now",
+    "tapToSpeak": "Tap to speak"
+  },
+  "weather": {
+    "title": "Weather",
+    "current": "Current Weather",
+    "forecast": "7-Day Forecast",
+    "temperature": "Temperature",
+    "humidity": "Humidity",
+    "rainfall": "Rainfall",
+    "sunny": "Sunny",
+    "cloudy": "Cloudy",
+    "rainy": "Rainy",
+    "windy": "Windy"
+  }
+}
+
