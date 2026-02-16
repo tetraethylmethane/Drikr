@@ -1,7 +1,7 @@
 // API Base URL - Update this with your Flask backend URL
 export const API_BASE_URL = __DEV__
-  ? "http://192.168.29.15:5000" // Your local IP for development
-  : "https://your-production-url.com";
+  ? "http://backend-url:5000" // Your local IP for development
+  : "https://drikr.com";
 
 export const API_ENDPOINTS = {
   // Crop Recommendation
