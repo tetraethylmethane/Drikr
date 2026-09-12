@@ -1,873 +1,465 @@
-import React, { useState } from "react";
-import { useAppDispatch } from '../store/hooks';
-import { setStateName } from '../store/slices/locationSlice';
+import React, { useCallback, useMemo } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
+import { cropProfile } from '../config/agronomy';
+import { HEADLINE_METRICS, metricSeries } from '../config/metrics';
+import { telemetrySource } from '../services/telemetry';
+import { activeAlerts, sortAlerts } from '../services/alertEngine';
+import { activeMissions, proposeMission } from '../services/drone';
+import { describeWeather } from '../services/weather';
+import { formatAge } from '../services/offline';
+import { usePlotState, useTelemetryEngine } from '../hooks/useTelemetry';
+import { useLanguage, LANGUAGES } from '../hooks/useLanguage';
+import { useVoice } from '../hooks/useVoice';
+import { selectPlot } from '../store/slices/farmSlice';
+import { confirmMission, proposeMissionAction } from '../store/slices/droneSlice';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { colors, healthColor, radii, spacing, typography } from '../theme';
+import { Recommendation } from '../types';
+import { Badge, Button, Card, LiveDot, Screen, SectionTitle } from '../components/ui';
 import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-  Modal,
-  Image,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useTranslation } from "react-i18next";
-import Card from "../components/Card";
-import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
-import indianDistricts from '../config/indianDistricts';
+  AlertBanner,
+  DroneMissionCard,
+  PlotPicker,
+  RecommendationList,
+  RiskDomainRow,
+  StatTile,
+  riskTone,
+} from '../components/domain';
+import { Gauge } from '../components/charts';
 
-const { width } = Dimensions.get("window");
-
+/**
+ * Home — the deck's primary mockup.
+ *
+ * Order is deliberate and matches it: the alert that needs attention, then the live
+ * sensor grid that justifies the alert, then what to do about it, then the assistant.
+ * A farmer opening the app mid-field should get the answer without scrolling.
+ */
 export default function HomeScreen() {
-  const { t } = useTranslation();
   const navigation = useNavigation<any>();
-  const [sidebarVisible, setSidebarVisible] = useState(false);
   const dispatch = useAppDispatch();
-  const [stateModalVisible, setStateModalVisible] = useState(false);
-  const [selectedState, setSelectedState] = useState<string>('Tamil Nadu');
+  const { t } = useTranslation();
+  const { language, change } = useLanguage();
 
-  const services: Array<{
-    id: string;
-    icon: string;
-    label: string;
-    description: string;
-    color: string;
-    gradient: readonly [string, string];
-    screen: string;
-  }> = [
-    {
-      id: "crop",
-      icon: "leaf",
-      label: "Crop Recommendation",
-      description: "Get AI-powered crop suggestions",
-      color: "#22c55e",
-  gradient: ["#22c55e", "#16a34a"] as const,
-      screen: "Crop",
-    },
-    {
-      id: "disease",
-      icon: "bug",
-      label: "Disease Detection",
-      description: "Identify plant diseases",
-      color: "#ef4444",
-  gradient: ["#ef4444", "#dc2626"] as const,
-      screen: "DiseaseDetection",
-    },
-    {
-      id: "pest",
-      icon: "bug-outline",
-      label: "Pest Detection",
-      description: "Detect and control pests",
-      color: "#8b5cf6",
-  gradient: ["#8b5cf6", "#7c3aed"] as const,
-      screen: "PestDetection",
-    },
-    {
-      id: "market",
-      icon: "trending-up",
-      label: "Market Prices",
-      description: "Check live market rates",
-      color: "#3b82f6",
-  gradient: ["#3b82f6", "#2563eb"] as const,
-      screen: "Market",
-    },
-    {
-      id: "profit",
-      icon: "calculator",
-      label: "Profit & Loss",
-      description: "Analyze your farming costs",
-      color: "#f59e0b",
-  gradient: ["#f59e0b", "#d97706"] as const,
-      screen: "ProfitLoss",
-    },
-    {
-      id: "chat",
-      icon: "chatbubbles",
-      label: "AI Assistant",
-      description: "Ask farming questions",
-      color: "#ec4899",
-  gradient: ["#ec4899", "#db2777"] as const,
-      screen: "ChatAssistant",
-    },
-    {
-      id: "weather",
-      icon: "partly-sunny",
-      label: "Weather Forecast",
-      description: "7-day weather predictions",
-      color: "#06b6d4",
-  gradient: ["#06b6d4", "#0891b2"] as const,
-      screen: "Weather",
-    },
-    {
-      id: "community",
-      icon: "people",
-      label: "Community",
-      description: "Connect with farmers",
-      color: "#14b8a6",
-  gradient: ["#14b8a6", "#0d9488"] as const,
-      screen: "Community",
-    },
-  ];
+  // Mounting the engine here keeps a single poll loop for the whole app.
+  const { refresh } = useTelemetryEngine();
+  const { plot, snapshot, map, history, assessment, forecast } = usePlotState();
 
-  const navigateToScreen = (screenName: string) => {
-    setSidebarVisible(false);
-    (navigation as any).navigate(screenName);
-  };
+  const plots = useAppSelector((s) => s.farm.plots);
+  const nodes = useAppSelector((s) => s.farm.nodes);
+  const snapshots = useAppSelector((s) => s.telemetry.snapshots);
+  const { refreshing, lastSyncAt, online } = useAppSelector((s) => s.telemetry);
+  const alerts = useAppSelector((s) => s.alerts.items);
+  const missions = useAppSelector((s) => s.drone.missions);
+  const { confidenceThreshold, autoSpeak } = useAppSelector((s) => s.settings);
+
+  const { speak } = useVoice({ language });
+
+  const topAlert = useMemo(() => sortAlerts(activeAlerts(alerts))[0] ?? null, [alerts]);
+  const plotMissions = useMemo(
+    () => activeMissions(missions).filter((m) => m.plotId === plot?.id),
+    [missions, plot?.id]
+  );
+  const crop = cropProfile(plot?.crop);
+
+  const handleDroneFromRecommendation = useCallback(
+    (_rec: Recommendation) => {
+      if (!plot || !snapshot) return;
+      const mission = proposeMission({
+        plot,
+        type: 'spray',
+        map,
+        reading: snapshot.reading,
+        forecast,
+        alert: topAlert ?? undefined,
+      });
+      dispatch(proposeMissionAction(mission));
+      navigation.navigate('Drone');
+    },
+    [plot, snapshot, map, forecast, topAlert, dispatch, navigation]
+  );
+
+  const speakSummary = useCallback(() => {
+    if (!plot || !snapshot || !assessment) return;
+    const lines = [
+      `${plot.name}. Crop health ${snapshot.healthIndex} out of 100.`,
+      assessment.primary ? `${assessment.primary.title}. ${assessment.primary.detail}` : 'No significant risk.',
+      ...assessment.recommendations.slice(0, 2).map((r) => r.text),
+    ];
+    speak(lines.join(' '));
+  }, [plot, snapshot, assessment, speak]);
+
+  const services = useMemo(
+    () => [
+      { id: 'map', icon: 'map', label: t('home.fieldMap'), screen: 'FieldHealthMap', tone: colors.brandLight },
+      { id: 'disease', icon: 'leaf', label: t('home.diseaseScan'), screen: 'DiseaseDetection', tone: colors.ok },
+      { id: 'pest', icon: 'bug', label: t('home.pestScan'), screen: 'PestDetection', tone: colors.danger },
+      { id: 'irrigation', icon: 'water', label: t('home.irrigation'), screen: 'Irrigation', tone: colors.info },
+      { id: 'nutrient', icon: 'nutrition', label: t('home.nutrients'), screen: 'Nutrient', tone: colors.warn },
+      { id: 'climate', icon: 'thunderstorm', label: t('home.climate'), screen: 'ClimateRisk', tone: '#8E44AD' },
+      { id: 'drone', icon: 'paper-plane', label: t('home.drone'), screen: 'Drone', tone: colors.brand },
+      { id: 'market', icon: 'trending-up', label: t('home.market'), screen: 'Market', tone: '#0E7490' },
+    ],
+    [t]
+  );
+
+  const lastUpdated = snapshot
+    ? new Date(snapshot.at).toLocaleString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : '—';
+
+  const stale = lastSyncAt ? Date.now() - lastSyncAt > 120_000 : true;
+  const weather = forecast ? describeWeather(forecast.now.code) : null;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Sidebar Menu */}
-      <Modal
-        visible={sidebarVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSidebarVisible(false)}
+    <Screen>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl * 2.5 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.brand} />
+        }
       >
-        <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setSidebarVisible(false)}
-          />
-          <View style={styles.sidebar}>
-            <View style={styles.sidebarHeader}>
-              <View style={styles.sidebarHeaderContent}>
-                <Text style={styles.sidebarTitle}>Drikr</Text>
-                <Text style={styles.sidebarSubtitle}>All Features</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setSidebarVisible(false)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={28} color="#ffffff" />
-              </TouchableOpacity>
+        {/* Brand bar + language switch, per the mockup */}
+        <View style={s.brandBar}>
+          <View style={s.brandLeft}>
+            <View style={s.logoMark}>
+              <Ionicons name="leaf" size={16} color="#fff" />
             </View>
+            <View>
+              <Text style={s.brandName}>DRIKR</Text>
+              <Text style={s.brandSub}>Smart Farming</Text>
+            </View>
+          </View>
 
-            <ScrollView style={styles.menuContainer} showsVerticalScrollIndicator={false}>
-              {services.map((service) => (
-                <TouchableOpacity
-                  key={service.id}
-                  style={styles.menuItem}
-                  onPress={() => navigateToScreen(service.screen)}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.menuIconContainer,
-                      { backgroundColor: service.color + "20" },
-                    ]}
-                  >
-                    <Ionicons
-                      name={service.icon as any}
-                      size={24}
-                      color={service.color}
-                    />
-                  </View>
-                  <View style={styles.menuTextContainer}>
-                    <Text style={styles.menuLabel}>{service.label}</Text>
-                    <Text style={styles.menuDescription}>{service.description}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+          <View style={s.brandRight}>
+            {!online ? <Badge label={t('common.offline')} tone="warn" icon="cloud-offline" /> : null}
+            <Pressable
+              style={s.langBtn}
+              onPress={() => {
+                const i = LANGUAGES.findIndex((l) => l.code === language);
+                change(LANGUAGES[(i + 1) % LANGUAGES.length].code);
+              }}
+              accessibilityLabel="Change language"
+            >
+              <Ionicons name="globe-outline" size={14} color={colors.brand} />
+              <Text style={s.langText}>{LANGUAGES.find((l) => l.code === language)?.native}</Text>
+              <Ionicons name="chevron-down" size={12} color={colors.brand} />
+            </Pressable>
           </View>
         </View>
-      </Modal>
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header Section */}
-        <LinearGradient
-          colors={["#000000", "#071840"] as const}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
-            <View style={styles.headerContent}>
-              <View style={styles.welcomeSection}>
-                <View style={styles.headerTop}>
-                  {/* Top-left small icon */}
-                  {/* Replace three-dash menu with header image */}
-                  <Image
-                    source={require("../../assets/images/header.png")}
-                    style={styles.headerImage}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.greeting}>🍃 Drikr</Text>
-                </View>
-                <Text style={styles.welcomeText}>
-                  Your AI-Powered Farming Assistant
-                </Text>
-              </View>
 
-              {/* Move menu button to top-right and add label; remove white avatar */}
-              <View style={styles.avatarContainer}>
-                <TouchableOpacity
-                  style={styles.stateButton}
-                  onPress={() => setStateModalVisible(true)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="location" size={16} color="#ffffff" />
-                  <Text style={styles.stateText}>{selectedState}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.moreInfoButton}
-                  onPress={() => setSidebarVisible(true)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="ellipsis-vertical" size={18} color="#ffffff" />
-                  <Text style={styles.moreInfoText}>More info</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* State selector modal */}
-              <Modal
-                visible={stateModalVisible}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setStateModalVisible(false)}
-              >
-                <View style={styles.stateModalOverlay}>
-                  <View style={styles.stateModalContainer}>
-                    <Text style={styles.stateModalTitle}>Select State</Text>
-                      <ScrollView showsVerticalScrollIndicator={false}>
-                        {Object.keys(indianDistricts).map((s) => (
-                          <TouchableOpacity
-                            key={s}
-                            style={styles.stateItem}
-                            onPress={() => { setSelectedState(s); setStateModalVisible(false); dispatch(setStateName(s)); }}
-                          >
-                            <Text style={styles.stateItemText}>{s}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    <TouchableOpacity style={styles.stateClose} onPress={() => setStateModalVisible(false)}>
-                      <Text style={styles.stateCloseText}>Close</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </Modal>
-            </View>
-          
-          {/* Weather / Field Metrics */}
-          <View style={styles.metricsRow}>
-            <View style={styles.metricCard}>
-              <Ionicons name="sunny" size={20} color="#fbbf24" />
-              <Text style={styles.metricValue}>28°C</Text>
-              <Text style={styles.metricLabel}>Temperature</Text>
-            </View>
-            <View style={styles.metricCard}>
-              <Ionicons name="speedometer" size={20} color="#60a5fa" />
-              <Text style={styles.metricValue}>12 km/h</Text>
-              <Text style={styles.metricLabel}>Wind</Text>
-            </View>
-            <View style={styles.metricCard}>
-              <Ionicons name="rainy" size={20} color="#60a5fa" />
-              <Text style={styles.metricValue}>2 mm</Text>
-              <Text style={styles.metricLabel}>Rainfall</Text>
-            </View>
-            <View style={styles.metricCard}>
-              <Ionicons name="water" size={20} color="#06b6d4" />
-              <Text style={styles.metricValue}>32%</Text>
-              <Text style={styles.metricLabel}>Moisture</Text>
-            </View>
+        {/* Alert banner */}
+        {topAlert ? (
+          <AlertBanner
+            alert={topAlert}
+            onPress={() => navigation.navigate('AlertDetail', { alertId: topAlert.id })}
+          />
+        ) : (
+          <View style={[s.okBanner]}>
+            <Ionicons name="shield-checkmark" size={18} color={colors.ok} />
+            <Text style={s.okBannerText}>{t('home.allClear')}</Text>
           </View>
-        </LinearGradient>
+        )}
 
-        {/* Services Grid */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Explore Features</Text>
-          <Text style={styles.sectionSubtitle}>
-            Tap on any card to get started
-          </Text>
+        {/* Live sensor data */}
+        <View style={s.liveHeader}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.liveTitle}>
+              {plot ? `${plot.name} — ${t('home.liveSensorData')}` : t('home.liveSensorData')}
+            </Text>
+            <Text style={s.liveMeta}>
+              {t('home.lastUpdated')}: {lastUpdated}
+              {snapshot ? ` · ${snapshot.nodesOnline}/${snapshot.nodesTotal} ${t('home.nodes')}` : ''}
+            </Text>
+          </View>
+          <LiveDot stale={stale} />
+        </View>
 
-          <View style={styles.servicesGrid}>
-            {services.map((service, index) => (
-              <TouchableOpacity
-                key={service.id}
-                activeOpacity={0.7}
-                style={styles.serviceCard}
-                onPress={() => navigateToScreen(service.screen)}
-              >
-                <LinearGradient
-                  colors={service.gradient as readonly [string, string]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.serviceCardContent}
-                >
-                  <View style={styles.serviceIconContainer}>
-                    <Ionicons
-                      name={service.icon as any}
-                      size={32}
-                      color="#ffffff"
-                    />
-                  </View>
-                  <Text style={styles.serviceLabel}>{service.label}</Text>
-                  <Text style={styles.serviceDescription}>
-                    {service.description}
-                  </Text>
-                  <View style={styles.arrowContainer}>
-                    <Ionicons name="arrow-forward" size={20} color="#ffffff" />
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
+        {plot ? (
+          <View style={s.plotRow}>
+            <PlotPicker
+              plots={plots}
+              selectedId={plot.id}
+              snapshots={snapshots}
+              onSelect={(id) => dispatch(selectPlot(id))}
+            />
+            <Badge label={`${crop.label} · ${plot.stage}`} tone="neutral" />
+            {telemetrySource() === 'simulated' ? (
+              <Badge label={t('home.simulated')} tone="info" icon="hardware-chip-outline" />
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Sensor tile grid — 2 x 3, matching the mockup */}
+        {snapshot ? (
+          <View style={s.grid}>
+            {HEADLINE_METRICS.map((metric) => (
+              <View key={metric} style={s.gridItem}>
+                <StatTile
+                  metric={metric}
+                  reading={snapshot.reading}
+                  plot={plot}
+                  series={metricSeries(history, metric)}
+                  onPress={() => navigation.navigate('SensorDetail', { metric })}
+                />
+              </View>
             ))}
           </View>
-        </View>
+        ) : (
+          <Card>
+            <Text style={s.loadingText}>{t('home.waitingForSensors')}</Text>
+          </Card>
+        )}
 
-        {/* Weather Forecast Card */}
-        <View style={styles.section}>
-          <Card style={styles.weatherCard}>
-            <View style={styles.weatherCardHeader}>
-              <View style={styles.weatherTitleContainer}>
-                <Ionicons name="partly-sunny" size={24} color="#f59e0b" />
-                <Text style={styles.weatherCardTitle}>7-Day Forecast</Text>
-              </View>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => navigateToScreen("Weather")}
-              >
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.forecastRow}>
-              <View style={styles.forecastItem}>
-                <Text style={styles.forecastDay}>Today</Text>
-                <Ionicons name="sunny" size={32} color="#f59e0b" />
-                <Text style={styles.forecastTemp}>28°C</Text>
-              </View>
-              <View style={styles.forecastItem}>
-                <Text style={styles.forecastDay}>Tomorrow</Text>
-                <Ionicons name="cloud" size={32} color="#6b7280" />
-                <Text style={styles.forecastTemp}>26°C</Text>
-              </View>
-              <View style={styles.forecastItem}>
-                <Text style={styles.forecastDay}>Day 3</Text>
-                <Ionicons name="sunny" size={32} color="#f59e0b" />
-                <Text style={styles.forecastTemp}>27°C</Text>
+        {/* Crop health index + risk breakdown */}
+        {snapshot && assessment ? (
+          <Card>
+            <View style={s.healthRow}>
+              <Gauge
+                value={snapshot.healthIndex}
+                label={t('home.healthIndex')}
+                color={healthColor(snapshot.healthIndex)}
+                size={112}
+              />
+              <View style={{ flex: 1, gap: 2 }}>
+                {assessment.risks.map((risk) => (
+                  <RiskDomainRow
+                    key={risk.domain}
+                    risk={risk}
+                    threshold={confidenceThreshold}
+                    onPress={() => navigation.navigate('RiskDetail', { domain: risk.domain })}
+                  />
+                ))}
               </View>
             </View>
           </Card>
-        </View>
+        ) : null}
 
-        {/* Top Market Prices Card */}
-        <View style={styles.section}>
-          <Card style={styles.marketCard}>
-            <View style={styles.marketCardHeader}>
-              <View style={styles.marketTitleContainer}>
-                <Ionicons name="trending-up" size={24} color="#3b82f6" />
-                <Text style={styles.marketCardTitle}>Top Prices</Text>
-              </View>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => navigateToScreen("Market")}
-              >
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
+        {/* Recommended action */}
+        {assessment ? (
+          <>
+            <SectionTitle
+              title={t('home.recommendedAction')}
+              icon="bulb"
+              action={t('home.listen')}
+              onAction={speakSummary}
+            />
+            <Card>
+              <RecommendationList
+                recommendations={assessment.recommendations}
+                max={4}
+                onSpeak={speak}
+                onDrone={handleDroneFromRecommendation}
+              />
+              {assessment.primary ? (
+                <Pressable
+                  style={s.whyRow}
+                  onPress={() => navigation.navigate('RiskDetail', { domain: assessment.primary!.domain })}
+                >
+                  <Ionicons name="information-circle-outline" size={14} color={colors.brandLight} />
+                  <Text style={s.whyText}>{t('home.whyThis')}</Text>
+                </Pressable>
+              ) : null}
+            </Card>
+          </>
+        ) : null}
+
+        {/* Pending drone mission */}
+        {plotMissions.length > 0 ? (
+          <>
+            <SectionTitle title={t('home.droneMission')} icon="paper-plane" action={t('common.viewAll')} onAction={() => navigation.navigate('Drone')} />
+            <View style={{ marginHorizontal: spacing.lg }}>
+              <DroneMissionCard
+                mission={plotMissions[0]}
+                plot={plot}
+                compact
+                onConfirm={() => dispatch(confirmMission(plotMissions[0].id))}
+              />
             </View>
+          </>
+        ) : null}
 
-            <View style={styles.priceList}>
-              <View style={styles.priceItem}>
-                <View style={styles.priceItemInfo}>
-                  <Text style={styles.cropName}>Rice</Text>
-                  <Text style={styles.cropTamil}>அரிசி</Text>
-                </View>
-                <View style={styles.priceRight}>
-                  <Text style={styles.cropPrice}>₹45/kg</Text>
-                  <Text style={styles.priceTrend}>↑ +5%</Text>
-                </View>
+        {/* Kisan Mitra entry, as in the mockup */}
+        <Card onPress={() => navigation.navigate('KisanMitra')} style={s.mitraCard}>
+          <View style={s.mitraRow}>
+            <View style={s.mitraIcon}>
+              <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.mitraTitle}>{t('home.askKisanMitra')}</Text>
+              <Text style={s.mitraSub}>{t('home.kisanMitraSub')}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.brand} />
+          </View>
+        </Card>
+
+        {/* Weather strip */}
+        {forecast && weather ? (
+          <Card onPress={() => navigation.navigate('Weather')}>
+            <View style={s.weatherRow}>
+              <Ionicons name={weather.icon as keyof typeof Ionicons.glyphMap} size={30} color={colors.warn} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.weatherTemp}>{Math.round(forecast.now.temp)}°C · {weather.label}</Text>
+                <Text style={s.weatherMeta}>
+                  {t('weather.humidity')} {Math.round(forecast.now.humidity)}% · {t('weather.wind')}{' '}
+                  {Math.round(forecast.now.windSpeed)} km/h
+                  {forecast.daily[0] ? ` · ${forecast.daily[0].precipProbability}% ${t('weather.rainChance')}` : ''}
+                </Text>
               </View>
-              <View style={styles.priceItem}>
-                <View style={styles.priceItemInfo}>
-                  <Text style={styles.cropName}>Wheat</Text>
-                  <Text style={styles.cropTamil}>கோதுமை</Text>
-                </View>
-                <View style={styles.priceRight}>
-                  <Text style={styles.cropPrice}>₹38/kg</Text>
-                  <Text style={[styles.priceTrend, styles.trendDown]}>↓ -2%</Text>
-                </View>
-              </View>
-              <View style={styles.priceItem}>
-                <View style={styles.priceItemInfo}>
-                  <Text style={styles.cropName}>Tomato</Text>
-                  <Text style={styles.cropTamil}>தக்காளி</Text>
-                </View>
-                <View style={styles.priceRight}>
-                  <Text style={styles.cropPrice}>₹60/kg</Text>
-                  <Text style={styles.priceTrend}>↑ +8%</Text>
-                </View>
-              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
             </View>
           </Card>
+        ) : null}
+
+        {/* Services */}
+        <SectionTitle title={t('home.tools')} icon="grid" />
+        <View style={s.services}>
+          {services.map((svc) => (
+            <Pressable
+              key={svc.id}
+              style={({ pressed }) => [s.service, pressed && { opacity: 0.75 }]}
+              onPress={() => navigation.navigate(svc.screen)}
+            >
+              <View style={[s.serviceIcon, { backgroundColor: svc.tone + '18' }]}>
+                <Ionicons name={svc.icon as keyof typeof Ionicons.glyphMap} size={21} color={svc.tone} />
+              </View>
+              <Text style={s.serviceLabel} numberOfLines={2}>
+                {svc.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
-        {/* Bottom Spacing */}
-        <View style={styles.bottomSpacer} />
+        {lastSyncAt ? (
+          <Text style={s.footer}>
+            {t('home.syncedAt')} {formatAge(lastSyncAt)} · {telemetrySource() === 'simulated' ? t('home.simulatedFooter') : t('home.hardwareFooter')}
+          </Text>
+        ) : null}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-  flex: 1,
-  backgroundColor: "#000000",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  header: {
-  paddingTop: 12,
-  paddingBottom: 16,
-  paddingHorizontal: 8,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    backgroundColor: 'transparent',
-  },
-  headerContent: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  marginBottom: 10,
-  },
-  welcomeSection: {
-  flex: 1,
-  alignItems: 'flex-start',
-  },
-  headerTop: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: 'flex-start',
-  gap: 12,
-  marginBottom: 4,
-  },
-  headerImage: {
-    width: 40,
-    height: 40,
-  marginRight: 6,
-  },
-  menuButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  greeting: {
-    fontSize: 20,
-    fontWeight: "600",
-  color: "#E6F7FF",
-  alignSelf: 'flex-start',
-  marginLeft: -50,
-  },
-  welcomeText: {
-    fontSize: 14,
-    color: "#9FD3FF",
-    lineHeight: 20,
-  },
-  avatarContainer: {
-    marginLeft: 16,
-  },
-  topRightMenuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  moreInfoButton: {
+const s = StyleSheet.create({
+  brandBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
-  moreInfoText: {
-    color: '#ffffff',
-    marginLeft: 8,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  avatarIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#071837",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  statsContainer: {
-    flexDirection: "row",
-    backgroundColor: "rgba(30,64,175,0.12)",
-    borderRadius: 16,
-    padding: 12,
-    alignItems: "center",
-  },
-  metricsRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    padding: 8,
-    borderRadius: 12,
-    marginTop: 12,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+  },
+  brandLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  logoMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: colors.brand,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  metricCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 10,
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#E6F7FF',
-    marginTop: 4,
-  },
-  metricLabel: {
-    fontSize: 12,
-    color: '#9FD3FF',
-    marginTop: 2,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: "center",
-    gap: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#ffffff",
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#dcfce7",
-  },
-  section: {
-    paddingHorizontal: 16,
-    marginTop: 24,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#E6F7FF",
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: "#9FD3FF",
-    marginBottom: 16,
-  },
-  servicesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  serviceCard: {
-    width: (width - 44) / 2,
-    borderRadius: 16,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    marginBottom: 4,
-  },
-  serviceCardContent: {
-    padding: 20,
-    minHeight: 160,
-    justifyContent: "space-between",
-  },
-  serviceIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  serviceLabel: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#E6F7FF",
-    marginBottom: 4,
-  },
-  serviceDescription: {
-    fontSize: 12,
-    color: "rgba(159,211,255,0.9)",
-    lineHeight: 18,
-  },
-  arrowContainer: {
-    alignSelf: "flex-end",
-    marginTop: 8,
-  },
-  weatherCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 16,
-  },
-  weatherCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  weatherTitleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  weatherCardTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1e293b",
-  },
-  viewAllText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#3b82f6",
-  },
-  forecastRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  forecastItem: {
-    alignItems: "center",
-    gap: 8,
-  },
-  forecastDay: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: "#64748b",
-  },
-  forecastTemp: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#1e293b",
-  },
-  marketCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 16,
-  },
-  marketCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  marketTitleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  marketCardTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1e293b",
-  },
-  priceList: {
-    gap: 12,
-  },
-  priceItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-  },
-  priceItemInfo: {
-    flex: 1,
-  },
-  cropName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 2,
-  },
-  cropTamil: {
-    fontSize: 12,
-    color: "#64748b",
-  },
-  priceRight: {
-    alignItems: "flex-end",
-  },
-  cropPrice: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#22c55e",
-    marginBottom: 2,
-  },
-  priceTrend: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#22c55e",
-  },
-  trendDown: {
-    color: "#ef4444",
-  },
-  bottomSpacer: {
-    height: 100,
-  },
-  // Sidebar Styles
-  modalContainer: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  sidebar: {
-    width: width * 0.85,
-    backgroundColor: "#ffffff",
-    borderLeftWidth: 1,
-    borderLeftColor: "#e5e7eb",
-  },
-  sidebarHeader: {
-    backgroundColor: "#22c55e",
-    padding: 20,
-    paddingTop: 50,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  sidebarHeaderContent: {
-    flex: 1,
-  },
-  sidebarTitle: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#ffffff",
-    marginBottom: 4,
-  },
-  sidebarSubtitle: {
-    fontSize: 14,
-    color: "#dcfce7",
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 12,
-  },
-  menuContainer: {
-    flex: 1,
-    paddingVertical: 8,
-  },
-  stateButton: {
+  brandName: { fontSize: 16, fontWeight: '900', color: colors.brand, letterSpacing: 1.1 },
+  brandSub: { fontSize: 9.5, fontWeight: '600', color: colors.textFaint, letterSpacing: 0.4 },
+  brandRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  langBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.md,
     paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  stateText: {
-    color: '#ffffff',
-    marginLeft: 8,
-    fontWeight: '600',
-    fontSize: 13,
+  langText: { ...typography.small, color: colors.brand, fontWeight: '700' },
+  okBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: colors.okBg,
+    borderWidth: 1,
+    borderColor: colors.ok + '33',
   },
-  stateModalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  okBannerText: { ...typography.small, color: colors.ok, fontWeight: '700', flex: 1 },
+  liveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    gap: spacing.sm,
   },
-  stateModalContainer: {
-    backgroundColor: '#ffffff',
-    maxHeight: '60%',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    padding: 16,
+  liveTitle: { ...typography.h3, color: colors.text },
+  liveMeta: { ...typography.tiny, color: colors.textMuted, marginTop: 2 },
+  plotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
   },
-  stateModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 12,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: spacing.lg - 4,
+    marginTop: spacing.md,
   },
-  stateItem: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+  gridItem: { width: '50%', padding: 4 },
+  loadingText: { ...typography.small, color: colors.textMuted, textAlign: 'center' },
+  healthRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  whyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  stateItemText: {
-    fontSize: 16,
-    color: '#0f172a',
+  whyText: { ...typography.tiny, color: colors.brandLight, fontWeight: '700' },
+  mitraCard: { backgroundColor: colors.surfaceAlt, borderColor: colors.brandLight + '33' },
+  mitraRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  mitraIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radii.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  stateClose: {
-    marginTop: 12,
-    alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+  mitraTitle: { ...typography.bodyStrong, color: colors.text },
+  mitraSub: { ...typography.tiny, color: colors.textMuted, marginTop: 2 },
+  weatherRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  weatherTemp: { ...typography.bodyStrong, color: colors.text },
+  weatherMeta: { ...typography.tiny, color: colors.textMuted, marginTop: 3 },
+  services: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg - 4 },
+  service: { width: '25%', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: 4 },
+  serviceIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
   },
-  stateCloseText: {
-    color: '#2563eb',
-    fontWeight: '700',
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-  },
-  menuIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  menuTextContainer: {
-    flex: 1,
-  },
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1e293b",
-    marginBottom: 2,
-  },
-  menuDescription: {
-    fontSize: 12,
-    color: "#64748b",
+  serviceLabel: { fontSize: 10.5, fontWeight: '600', color: colors.textMuted, textAlign: 'center', lineHeight: 14 },
+  footer: {
+    ...typography.tiny,
+    color: colors.textFaint,
+    textAlign: 'center',
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
 });

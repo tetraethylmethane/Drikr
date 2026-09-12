@@ -1,484 +1,343 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Dimensions, TouchableOpacity, ActivityIndicator, Modal } from 'react-native';
-import indianDistricts from '../config/indianDistricts';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import Card from '../components/Card';
-import Loader from '../components/Loader';
-import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { setPrices, setLoading } from '../store/slices/marketSlice';
-// chart removed: victory imports no longer needed
+import indianDistricts from '../config/indianDistricts';
+import { cropProfile } from '../config/agronomy';
+import { fetchPrices, sellSignal } from '../services/market';
+import { formatAge } from '../services/offline';
+import { usePlotState } from '../hooks/useTelemetry';
+import { useAppSelector } from '../store/hooks';
+import { colors, radii, spacing, typography } from '../theme';
+import { MarketPrice } from '../types';
+import { AppHeader, Badge, Button, Card, EmptyState, Pill, Screen, SectionTitle } from '../components/ui';
 
-const { width } = Dimensions.get('window');
-
+/**
+ * Mandi prices from data.gov.in, with the farmer's own crop pulled to the top.
+ *
+ * State/district come from the bundled district map so the pickers work offline;
+ * prices are cached, so the last known rates stay visible with their age shown
+ * rather than the screen going blank on a dropped connection.
+ */
 export default function MarketScreen() {
   const { t } = useTranslation();
-  const dispatch = useAppDispatch();
-  const { prices, loading } = useAppSelector((state) => state.market);
+  const { plot } = usePlotState();
+  const profile = useAppSelector((s) => s.user.profile);
+  const online = useAppSelector((s) => s.telemetry.online);
 
-  const [district, setDistrict] = useState<string>('');
-  const [districtModalVisible, setDistrictModalVisible] = useState(false);
-  const [availableDistricts, setAvailableDistricts] = useState<string[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [localLoading, setLocalLoading] = useState(false);
-  // default resource id set and hidden from UI per user request
-  const [resourceId, setResourceId] = useState<string>('9ef84268-d588-465a-a308-a864a43d0070');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [state, setState] = useState<string>(profile?.state ?? 'Tamil Nadu');
+  const [district, setDistrict] = useState<string>(profile?.district ?? '');
+  const [prices, setPrices] = useState<MarketPrice[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [meta, setMeta] = useState<{ at: number; cached: boolean; stale: boolean } | null>(null);
+  const [picker, setPicker] = useState<'state' | 'district' | null>(null);
+  const [onlyMyCrop, setOnlyMyCrop] = useState(false);
 
-  // read selected state from store
-  const selectedState = useAppSelector((s) => (s as any).location?.stateName) as string | null;
+  const districts = useMemo(() => indianDistricts[state] ?? [], [state]);
+  const myCrop = plot ? cropProfile(plot.crop).label : null;
 
-  // Helpers: parse numeric strings and normalize common units to per-kg prices
-  const parseNumeric = (v: any): number | null => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === 'number') return v;
-    const s = String(v).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
-    return s ? Number(s[0]) : null;
-  };
-
-  const normalizeToPerKg = (priceRaw: any, unitRaw: any, rawRecord?: any): { value: number | null; approx?: boolean } => {
-    const price = parseNumeric(priceRaw);
-    if (price == null) return { value: null };
-    const unit = (unitRaw || rawRecord?.unit || '').toString().toLowerCase();
-
-    // Exact per-kg
-    if (unit.includes('kg')) {
-      // check if unit string suggests per 100kg or per 100 kg
-      if (unit.match(/100\s*kg/)) return { value: price / 100 };
-      return { value: price };
-    }
-
-    // per quintal (usually 100 kg)
-    if (unit.includes('quintal') || unit.includes('qtl')) {
-      return { value: price / 100 };
-    }
-
-    // per tonne / ton (1000 kg)
-    if (unit.includes('ton') || unit.includes('tne') || unit.includes('metric ton') || unit.includes('mt')) {
-      return { value: price / 1000 };
-    }
-
-    // some datasets include '/100kg' or similar
-    if (String(unit).includes('/100kg') || String(unit).includes('per 100kg') || String(unit).includes('per100kg')) {
-      return { value: price / 100 };
-    }
-
-    // If unit missing but price is large, guess quintal (common): heuristic
-    if (!unit || unit.trim() === '') {
-      if (price > 1000) return { value: price / 100, approx: true };
-      return { value: price };
-    }
-
-    // fallback: return raw value (treat as per-kg)
-    return { value: price };
-  };
-
-  const chartData = [
-    { day: 'Day 1', value: 40 },
-    { day: 'Day 2', value: 42 },
-    { day: 'Day 3', value: 41 },
-    { day: 'Day 4', value: 43 },
-    { day: 'Day 5', value: 44 },
-    { day: 'Day 6', value: 45 },
-    { day: 'Day 7', value: 45 },
-  ];
-
-  useEffect(() => {
-    loadMarketPrices();
-    // when selectedState changes, fetch available districts
-  }, []);
-
-  useEffect(() => {
-    if (selectedState) fetchAvailableDistricts(selectedState);
-    else setAvailableDistricts([]);
-    // reset district when state changes
-    setDistrict('');
-  }, [selectedState]);
-
-  const fetchAvailableDistricts = async (stateName: string) => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const DATA_GOV_API_KEY = '579b464db66ec23bdd000001e19e51f7932a45cd5b94455207ab83ea';
-      const RESOURCE_ID = resourceId.trim();
-      if (!RESOURCE_ID) return;
-      const params = new URLSearchParams({ 'api-key': DATA_GOV_API_KEY, format: 'json', limit: '1000', fields: 'district' } as any);
-      params.append(`filters[state.keyword]`, stateName);
-      const url = `https://api.data.gov.in/resource/${RESOURCE_ID}?${params.toString()}`;
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const data = await res.json();
-      const records = Array.isArray(data?.records) ? data.records : [];
-      const set = new Set<string>();
-      for (const r of records) {
-        const d = r.district || r.district_name || r.districts || r.District || null;
-        if (d) set.add(String(d).trim());
-      }
-      const arr = Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b));
-      setAvailableDistricts(arr);
-    } catch (e) {
-      console.warn('Failed to fetch districts', e);
-      setAvailableDistricts([]);
-    }
-  };
-
-  const loadMarketPrices = async () => {
-    // If no district provided, keep previous behavior (simple demo)
-    if (!district) {
-      dispatch(setLoading(true));
-      setTimeout(() => dispatch(setLoading(false)), 1000);
-      return;
-    }
-
-    // Real fetch from data.gov.in using provided API key
-    const DATA_GOV_API_KEY = '579b464db66ec23bdd000001e19e51f7932a45cd5b94455207ab83ea';
-    const RESOURCE_ID = resourceId.trim();
-
-    if (!RESOURCE_ID) {
-      setErrorMsg('Missing dataset resource id. Please provide the data.gov.in resource id above.');
-      setLocalLoading(false);
-      dispatch(setLoading(false));
-      return;
-    }
-
-    setErrorMsg(null);
-
-    setLocalLoading(true);
-    dispatch(setLoading(true));
-    try {
-      const params = new URLSearchParams({
-        'api-key': DATA_GOV_API_KEY,
-        format: 'json',
-        limit: '100',
-      } as any);
-
-      // Add filters for state/district if available. We'll attempt district filter only here.
-      // If you want to filter by state, add filters[state.keyword]
-      if (district) {
-        params.append(`filters[district.keyword]`, district);
-      }
-
-  const url = `https://api.data.gov.in/resource/${RESOURCE_ID}?${params.toString()}`;
-
-  const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      // data.records is the usual shape; gracefully handle variations
-      const records = Array.isArray(data?.records) ? data.records : [];
-
-      // Map records into a simple shape used by UI/store
-      const mapped = records.map((r: any) => {
-        const commodity = r.commodity || r.Commodity || r.commodity_name || r.name;
-        const variety = r.variety || r.variety_name || r.variety_of_commodity || '';
-        const unit = r.unit || r.unit_of_quantity || r.unit_price || '';
-        const modal_raw = r.modal_price || r.modal_price_per_quintal || r.modal_price_per_kg || r.modal_price_per_unit || r.modal_price_in_rupees || r.modal;
-        const min_raw = r.min_price || r.min_price_per_quintal || r.min_price_per_kg || r.min_price_per_unit;
-        const max_raw = r.max_price || r.max_price_per_quintal || r.max_price_per_kg || r.max_price_per_unit;
-
-        // prefer modal price, then avg of min/max, then min
-        const modalNorm = normalizeToPerKg(modal_raw, unit, r);
-        let pricePerKg = modalNorm.value;
-        let approx = !!modalNorm.approx;
-
-        if (pricePerKg == null) {
-          const minN = parseNumeric(min_raw);
-          const maxN = parseNumeric(max_raw);
-          if (minN != null && maxN != null) {
-            const avg = (minN + maxN) / 2;
-            const norm = normalizeToPerKg(avg, unit, r);
-            pricePerKg = norm.value;
-            approx = !!norm.approx;
-          } else if (minN != null) {
-            const norm = normalizeToPerKg(minN, unit, r);
-            pricePerKg = norm.value;
-            approx = !!norm.approx;
-          }
-        }
-
-        return {
-          commodity,
-          variety,
-          min_price: parseNumeric(min_raw),
-          max_price: parseNumeric(max_raw),
-          modal_price: parseNumeric(modal_raw),
-          unit: unit || 'kg',
-          arrival_date: r.arrival_date || r.date || r.timestamp || null,
-          price_per_kg: pricePerKg,
-          price_per_kg_approx: approx,
-          raw: r,
-        };
-      });
-
-  dispatch(setPrices(mapped));
-      setLastUpdated(new Date().toISOString());
-    } catch (e: any) {
-      // If network or error, clear prices and surface nothing
-  dispatch(setPrices([]));
-  setLastUpdated(null);
-  setErrorMsg(e?.message ? String(e.message) : 'Fetch failed');
-  console.warn('Market fetch failed', e?.message || e);
+      const res = await fetchPrices({ state, district: district || undefined, limit: 250 });
+      setPrices(res.prices);
+      setMeta({ at: res.fetchedAt, cached: res.fromCache, stale: res.stale });
+      if (res.prices.length === 0) setError(t('market.noRecords'));
+    } catch {
+      setError(online ? t('market.fetchFailed') : t('market.offlineNoCache'));
+      setPrices([]);
     } finally {
-      setLocalLoading(false);
-      dispatch(setLoading(false));
+      setLoading(false);
     }
-  };
+  }, [state, district, online, t]);
 
-  if (loading) {
-    return <Loader />;
-  }
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtered = useMemo(() => {
+    if (!onlyMyCrop || !myCrop) return prices;
+    return prices.filter((p) => p.commodity.toLowerCase().includes(myCrop.toLowerCase()));
+  }, [prices, onlyMyCrop, myCrop]);
+
+  const signal = useMemo(() => (myCrop ? sellSignal(prices, myCrop) : null), [prices, myCrop]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t('market.title')}</Text>
-          <Text style={styles.subtitle}>{t('market.subtitle')}</Text>
+    <Screen>
+      <AppHeader
+        title={t('market.title')}
+        subtitle={t('market.subtitle')}
+        right={meta ? <Badge label={formatAge(meta.at)} tone={meta.stale ? 'warn' : 'ok'} /> : undefined}
+      />
+
+      <View style={s.filters}>
+        <Pressable style={s.filterBtn} onPress={() => setPicker('state')}>
+          <Ionicons name="location" size={13} color={colors.brand} />
+          <Text style={s.filterText} numberOfLines={1}>
+            {state}
+          </Text>
+          <Ionicons name="chevron-down" size={12} color={colors.brand} />
+        </Pressable>
+        <Pressable style={s.filterBtn} onPress={() => setPicker('district')}>
+          <Ionicons name="business" size={13} color={colors.brand} />
+          <Text style={s.filterText} numberOfLines={1}>
+            {district || t('market.allDistricts')}
+          </Text>
+          <Ionicons name="chevron-down" size={12} color={colors.brand} />
+        </Pressable>
+        <Pressable style={s.refreshBtn} onPress={() => void load()} accessibilityLabel={t('common.retry')}>
+          <Ionicons name="refresh" size={16} color={colors.brand} />
+        </Pressable>
+      </View>
+
+      {myCrop ? (
+        <View style={s.pillRow}>
+          <Pill
+            label={`${t('market.onlyMyCrop')}: ${myCrop}`}
+            active={onlyMyCrop}
+            onPress={() => setOnlyMyCrop((v) => !v)}
+            icon="leaf"
+          />
         </View>
+      ) : null}
 
-        {/* District input and fetch button */}
-        <Card>
-          <Text style={styles.cardTitle}>Fetch Market Prices by District</Text>
-            {/* resourceId is set by default and hidden from the input per requirement */}
-            <TouchableOpacity style={[styles.districtInput, { marginTop: 10 }]} onPress={() => setDistrictModalVisible(true)}>
-              <Text style={{ color: district ? '#e6f7ff' : '#9aa9b8' }}>{district || (selectedState ? `Select district in ${selectedState}` : 'Select state first on Home') }</Text>
-            </TouchableOpacity>
-            {/* Inline dropdown appears directly under the input for visibility */}
-            {districtModalVisible && (
-              <View style={styles.dropdown}>
-                <ScrollView style={{ maxHeight: 240 }}>
-                  {(availableDistricts && availableDistricts.length > 0
-                    ? availableDistricts
-                    : (selectedState && indianDistricts[selectedState] ? indianDistricts[selectedState] : [])
-                  ).map((d) => (
-                    <TouchableOpacity key={d} style={styles.dropdownItem} onPress={() => { setDistrict(d); setDistrictModalVisible(false); }}>
-                      <Text style={styles.dropdownText}>{d}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-            {errorMsg ? <Text style={{ color: '#ffb4b4', marginTop: 8 }}>{errorMsg}</Text> : null}
-          <View style={{ flexDirection: 'row', marginTop: 8 }}>
-            <TouchableOpacity style={styles.fetchButton} onPress={loadMarketPrices} activeOpacity={0.8}>
-              {localLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Fetch</Text>
-              )}
-            </TouchableOpacity>
-            <View style={{ flex: 1 }} />
-            {lastUpdated ? <Text style={styles.lastUpdated}>Last: {new Date(lastUpdated).toLocaleString()}</Text> : null}
-          </View>
-        </Card>
-
-  {/* Today's price and 7-day trend cards removed — using fetched market data instead */}
-
-        <Card>
-          <Text style={styles.cardTitle}>All Crops</Text>
-          {prices && prices.length > 0 ? (
-            // sort by computed per-kg price (highest first)
-            [...prices]
-              .slice()
-              .sort((a: any, b: any) => (b.price_per_kg || 0) - (a.price_per_kg || 0))
-              .map((p: any, idx: number) => (
-                <View key={idx} style={styles.priceRow}>
-                  <View style={styles.cropInfo}>
-                    <Text style={styles.cropName}>{p.commodity}</Text>
-                    {!!p.variety && <Text style={styles.cropTamil}>{p.variety}</Text>}
-                  </View>
-
-                  <View style={[styles.priceRight, styles.priceColumn]}>
-                    {p.price_per_kg != null ? (
-                      <>
-                        <Text style={styles.price}>₹{Number(p.price_per_kg).toFixed(2)}/kg</Text>
-                        {p.price_per_kg_approx ? (
-                          <Text style={{ color: '#f59e0b', fontSize: 12, marginTop: 4 }}>approx</Text>
-                        ) : null}
-                      </>
-                    ) : (
-                      <Text style={{ color: '#9aa9b8' }}>—</Text>
-                    )}
-                  </View>
+      <FlatList
+        data={filtered}
+        keyExtractor={(p, i) => `${p.commodity}-${p.market}-${i}`}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl * 2 }}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <>
+            {meta?.cached ? (
+              <Card tone="warn">
+                <View style={s.cacheRow}>
+                  <Ionicons name="cloud-offline" size={16} color={colors.warn} />
+                  <Text style={s.cacheText}>
+                    {t('market.showingCached', { age: formatAge(meta.at) })}
+                  </Text>
                 </View>
-              ))
-          ) : (
-            <Text style={{ color: '#9aa9b8', paddingVertical: 12 }}>No prices loaded. Enter a district and tap Fetch.</Text>
-          )}
-        </Card>
-      </ScrollView>
-    </SafeAreaView>
+              </Card>
+            ) : null}
+
+            {signal && signal.best && myCrop ? (
+              <Card>
+                <Text style={s.signalTitle}>
+                  {t('market.bestRate')} · {myCrop}
+                </Text>
+                <View style={s.signalRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.signalPrice}>₹{signal.best.modalPrice.toLocaleString('en-IN')}</Text>
+                    <Text style={s.signalMeta}>
+                      {signal.best.market}, {signal.best.district}
+                    </Text>
+                  </View>
+                  {signal.spreadPct > 0 ? (
+                    <Badge label={`+${signal.spreadPct}% ${t('market.vsMedian')}`} tone="ok" icon="trending-up" />
+                  ) : null}
+                </View>
+                <Text style={s.signalNote}>{t('market.spreadNote')}</Text>
+              </Card>
+            ) : null}
+
+            {plot ? (
+              <Card>
+                <Text style={s.signalTitle}>{t('market.yieldValue')}</Text>
+                <Text style={s.yieldBody}>
+                  {t('market.yieldBody', {
+                    crop: cropProfile(plot.crop).label,
+                    yield: cropProfile(plot.crop).typicalYieldQuintalPerAcre,
+                    acres: plot.areaAcres,
+                    quintals: Math.round(
+                      cropProfile(plot.crop).typicalYieldQuintalPerAcre * plot.areaAcres
+                    ),
+                  })}
+                </Text>
+                {signal && signal.best ? (
+                  <Text style={s.yieldValue}>
+                    ≈ ₹
+                    {Math.round(
+                      cropProfile(plot.crop).typicalYieldQuintalPerAcre *
+                        plot.areaAcres *
+                        signal.best.modalPrice
+                    ).toLocaleString('en-IN')}
+                  </Text>
+                ) : null}
+              </Card>
+            ) : null}
+
+            {loading ? (
+              <View style={s.loading}>
+                <ActivityIndicator color={colors.brand} />
+                <Text style={s.loadingText}>{t('market.loading')}</Text>
+              </View>
+            ) : null}
+
+            {filtered.length > 0 ? <SectionTitle title={t('market.todayRates')} icon="pricetags" /> : null}
+          </>
+        }
+        ListEmptyComponent={
+          loading ? null : (
+            <EmptyState
+              icon="pricetag-outline"
+              title={error ?? t('market.noRecords')}
+              body={t('market.tryDifferent')}
+              action={t('common.retry')}
+              onAction={() => void load()}
+            />
+          )
+        }
+        renderItem={({ item }) => <PriceRow price={item} highlight={myCrop != null && item.commodity.toLowerCase().includes(myCrop.toLowerCase())} />}
+      />
+
+      {/* Picker */}
+      <Modal visible={picker !== null} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
+        <Pressable style={s.backdrop} onPress={() => setPicker(null)}>
+          <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={s.sheetTitle}>
+              {picker === 'state' ? t('market.selectState') : t('market.selectDistrict')}
+            </Text>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {picker === 'district' ? (
+                <Pressable
+                  style={s.optionRow}
+                  onPress={() => {
+                    setDistrict('');
+                    setPicker(null);
+                  }}
+                >
+                  <Text style={s.optionText}>{t('market.allDistricts')}</Text>
+                </Pressable>
+              ) : null}
+              {(picker === 'state' ? Object.keys(indianDistricts) : districts).map((item) => (
+                <Pressable
+                  key={item}
+                  style={s.optionRow}
+                  onPress={() => {
+                    if (picker === 'state') {
+                      setState(item);
+                      setDistrict('');
+                    } else {
+                      setDistrict(item);
+                    }
+                    setPicker(null);
+                  }}
+                >
+                  <Text style={s.optionText}>{item}</Text>
+                  {(picker === 'state' ? state : district) === item ? (
+                    <Ionicons name="checkmark" size={17} color={colors.brand} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+function PriceRow({ price, highlight }: { price: MarketPrice; highlight?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <Card style={highlight ? { borderColor: colors.brandLight + '66', backgroundColor: colors.surfaceAlt } : undefined}>
+      <View style={s.priceTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.commodity} numberOfLines={1}>
+            {price.commodity}
+            {price.variety ? <Text style={s.variety}> · {price.variety}</Text> : null}
+          </Text>
+          <Text style={s.marketName} numberOfLines={1}>
+            {price.market}
+            {price.district ? `, ${price.district}` : ''}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={s.modal}>₹{price.modalPrice.toLocaleString('en-IN')}</Text>
+          <Text style={s.unit}>{price.unit}</Text>
+        </View>
+      </View>
+      <View style={s.rangeRow}>
+        <Text style={s.rangeText}>
+          {t('market.min')} ₹{price.minPrice.toLocaleString('en-IN')}
+        </Text>
+        <View style={s.rangeBar}>
+          <View style={s.rangeFill} />
+        </View>
+        <Text style={s.rangeText}>
+          {t('market.max')} ₹{price.maxPrice.toLocaleString('en-IN')}
+        </Text>
+      </View>
+      {price.date ? <Text style={s.date}>{price.date}</Text> : null}
+    </Card>
+  );
+}
+
+const s = StyleSheet.create({
+  filters: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
+  filterBtn: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  header: {
-    backgroundColor: '#071837',
-    padding: 20,
-    paddingTop: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#e6f7ff',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#9fbfe6',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#e6f7ff',
-    marginBottom: 8,
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: '#9aa9b8',
-    marginBottom: 16,
-  },
-  priceItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-  },
-  cropName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-  },
-  cropTamil: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  priceInfo: {
-    alignItems: 'flex-end',
-  },
-  price: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#38bdf8',
-    marginBottom: 2,
-  },
-  trend: {
-    fontSize: 14,
-    color: '#38bdf8',
-    fontWeight: '500',
-  },
-  chartContainer: {
-    height: 340,
-    marginBottom: 16,
-    backgroundColor: '#071837',
-    borderRadius: 12,
-    padding: 8,
-  },
-  chartSummary: {
-    flexDirection: 'row',
-    backgroundColor: '#071837',
-    borderRadius: 12,
-    padding: 16,
-    justifyContent: 'space-around',
-  },
-  summaryItem: {
-    alignItems: 'center',
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#e6f7ff',
-    marginBottom: 4,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#9aa9b8',
-    fontWeight: '500',
-  },
-  summaryDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#11324a',
-  },
-  positiveText: {
-    color: '#38bdf8',
-  },
-  districtInput: {
-    marginTop: 8,
-    borderRadius: 8,
-    backgroundColor: '#0b2433',
-    color: '#e6f7ff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  dropdown: {
-    backgroundColor: '#071837',
-    borderRadius: 8,
-    marginTop: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 1,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#11324a',
+    borderColor: colors.border,
   },
-  dropdownItem: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#0b2733',
+  filterText: { ...typography.small, color: colors.brand, fontWeight: '700', flex: 1 },
+  refreshBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dropdownText: {
-    color: '#e6f7ff',
-    fontSize: 14,
+  pillRow: { flexDirection: 'row', paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
+  cacheRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cacheText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
+  signalTitle: { ...typography.tiny, color: colors.textMuted, marginBottom: spacing.sm },
+  signalRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  signalPrice: { fontSize: 26, fontWeight: '800', color: colors.text, letterSpacing: -0.7 },
+  signalMeta: { ...typography.small, color: colors.textMuted, marginTop: 1 },
+  signalNote: { ...typography.tiny, color: colors.textFaint, marginTop: spacing.sm, lineHeight: 15 },
+  yieldBody: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
+  yieldValue: { ...typography.h2, color: colors.ok, marginTop: spacing.sm },
+  loading: { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.sm },
+  loadingText: { ...typography.small, color: colors.textMuted },
+  priceTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  commodity: { ...typography.bodyStrong, color: colors.text },
+  variety: { ...typography.small, color: colors.textMuted, fontWeight: '500' },
+  marketName: { ...typography.tiny, color: colors.textMuted, marginTop: 2 },
+  modal: { ...typography.h3, color: colors.brand },
+  unit: { fontSize: 9.5, fontWeight: '600', color: colors.textFaint },
+  rangeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+  rangeText: { ...typography.tiny, color: colors.textMuted },
+  rangeBar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.surfaceSunken, overflow: 'hidden' },
+  rangeFill: { height: '100%', backgroundColor: colors.accent, width: '100%', opacity: 0.5 },
+  date: { ...typography.tiny, color: colors.textFaint, marginTop: 6 },
+  backdrop: { flex: 1, backgroundColor: '#0F2C2199', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
-  fetchButton: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  lastUpdated: {
-    color: '#9aa9b8',
-    alignSelf: 'center',
-    fontSize: 12,
-    marginLeft: 8,
-  },
-  priceRow: {
+  sheetTitle: { ...typography.h2, color: colors.text, marginBottom: spacing.md },
+  optionRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    backgroundColor: '#071837',
-    borderRadius: 12,
-    marginBottom: 8,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceAlt,
   },
-  cropInfo: {
-    flex: 1,
-  },
-  priceRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  priceColumn: {
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    minWidth: 100,
-  },
-  trendIcon: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    width: 32,
-    textAlign: 'center',
-    color: '#e6f7ff',
-  },
-  trendUp: {
-    color: '#38bdf8',
-  },
-  trendDown: {
-    color: '#ef4444',
-  },
+  optionText: { ...typography.body, color: colors.text },
 });

@@ -1,217 +1,317 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useMemo } from 'react';
+import { Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import Card from '../components/Card';
 import { useTranslation } from 'react-i18next';
+import { cropProfile, DRONE_LIMITS } from '../config/agronomy';
+import { describeWeather, rainNextHours } from '../services/weather';
+import { formatAge } from '../services/offline';
+import { usePlotState } from '../hooks/useTelemetry';
+import { useAppSelector } from '../store/hooks';
+import { colors, radii, spacing, StatusTone, toneColors, typography } from '../theme';
+import { AppHeader, Badge, Card, EmptyState, Screen, SectionTitle } from '../components/ui';
+import { ChartLegend, TrendChart } from '../components/charts';
+import { RecommendationList } from '../components/domain';
 
+/**
+ * Weather and climate risk.
+ *
+ * Real forecast data from Open-Meteo, framed around farm decisions rather than
+ * generic conditions: whether to irrigate, whether a spray will wash off, whether
+ * the drone can fly, and whether heat will hit at a sensitive growth stage.
+ */
 export default function WeatherScreen() {
+  const navigation = useNavigation<any>();
   const { t } = useTranslation();
-  const [weather, setWeather] = useState({
-    current: {
-      temp: 28,
-      condition: 'Sunny',
-      humidity: 65,
-      windSpeed: 12,
-    },
-    forecast: [
-      { day: 'Today', temp: 28, condition: 'Sunny', icon: 'sunny' },
-      { day: 'Tomorrow', temp: 26, condition: 'Cloudy', icon: 'cloud' },
-      { day: 'Day 3', temp: 27, condition: 'Sunny', icon: 'sunny' },
-      { day: 'Day 4', temp: 25, condition: 'Rainy', icon: 'rainy' },
-      { day: 'Day 5', temp: 29, condition: 'Sunny', icon: 'sunny' },
-      { day: 'Day 6', temp: 30, condition: 'Sunny', icon: 'sunny' },
-      { day: 'Day 7', temp: 28, condition: 'Cloudy', icon: 'cloud' },
-    ],
-  });
+  const { plot, snapshot, assessment, forecast } = usePlotState();
+  const online = useAppSelector((s) => s.telemetry.online);
 
-  const getIcon = (condition: string) => {
-    const icons: any = {
-      sunny: 'sunny',
-      cloudy: 'cloud',
-      rainy: 'rainy',
-      windy: 'cloudy',
-    };
-    return icons[condition.toLowerCase()] || 'sunny';
-  };
+  const width = Dimensions.get('window').width - spacing.lg * 4;
+
+  const climateRisk = useMemo(
+    () => assessment?.risks.find((r) => r.domain === 'climate') ?? null,
+    [assessment]
+  );
+
+  const hourly = useMemo(() => {
+    if (!forecast) return [];
+    const now = Date.now();
+    return forecast.hourly.filter((h) => h.at >= now - 3600_000).slice(0, 24);
+  }, [forecast]);
+
+  const tempSeries = useMemo(
+    () => [
+      { label: t('weather.temp'), unit: '°C', values: hourly.map((h) => h.temp), color: colors.warn },
+    ],
+    [hourly, t]
+  );
+  const rainSeries = useMemo(
+    () => [
+      { label: t('weather.rain'), unit: 'mm', values: hourly.map((h) => h.precip), color: colors.info },
+    ],
+    [hourly, t]
+  );
+
+  const xLabels = useMemo(() => {
+    if (hourly.length < 2) return undefined;
+    const fmt = (at: number) => new Date(at).toLocaleTimeString('en-IN', { hour: 'numeric' });
+    return [
+      fmt(hourly[0].at),
+      fmt(hourly[Math.floor(hourly.length / 2)].at),
+      fmt(hourly[hourly.length - 1].at),
+    ];
+  }, [hourly]);
+
+  if (!forecast) {
+    return (
+      <Screen>
+        <AppHeader title={t('weather.title')} onBack={() => navigation.goBack()} />
+        <EmptyState
+          icon="cloud-offline-outline"
+          title={online ? t('weather.loading') : t('weather.offlineTitle')}
+          body={online ? undefined : t('weather.offlineBody')}
+        />
+      </Screen>
+    );
+  }
+
+  const now = describeWeather(forecast.now.code);
+  const crop = plot ? cropProfile(plot.crop) : null;
+  const tempCeiling = crop?.bands.airTemp?.ideal[1] ?? 33;
+  const rain24 = rainNextHours(forecast, 24);
+  const rain48 = rainNextHours(forecast, 48);
+
+  const sprayOk =
+    forecast.now.windSpeed <= DRONE_LIMITS.maxWindKmh && forecast.now.precipitation <= DRONE_LIMITS.maxRainMm;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t('weather.title')}</Text>
-          <Text style={styles.subtitle}>{t('weather.current')}</Text>
-        </View>
+    <Screen scroll>
+      <AppHeader
+        title={t('weather.title')}
+        subtitle={plot ? plot.name : undefined}
+        onBack={() => navigation.goBack()}
+        right={<Badge label={formatAge(forecast.fetchedAt)} tone={online ? 'ok' : 'warn'} />}
+      />
 
+      {/* Current */}
       <Card>
-        <View style={styles.currentWeather}>
-          <Ionicons name="sunny" size={80} color="#f59e0b" />
-          <View style={styles.tempSection}>
-            <Text style={styles.temp}>{weather.current.temp}°C</Text>
-            <Text style={styles.condition}>{weather.current.condition}</Text>
+        <View style={s.nowRow}>
+          <Ionicons name={now.icon as keyof typeof Ionicons.glyphMap} size={56} color={colors.warn} />
+          <View style={{ flex: 1 }}>
+            <Text style={s.nowTemp}>{Math.round(forecast.now.temp)}°C</Text>
+            <Text style={s.nowLabel}>{now.label}</Text>
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Ionicons name="water" size={24} color="#3b82f6" />
-            <Text style={styles.statLabel}>{t('weather.humidity')}</Text>
-            <Text style={styles.statValue}>{weather.current.humidity}%</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Ionicons name="speedometer" size={24} color="#8b5cf6" />
-            <Text style={styles.statLabel}>Wind Speed</Text>
-            <Text style={styles.statValue}>{weather.current.windSpeed} km/h</Text>
-          </View>
+        <View style={s.statRow}>
+          <WeatherStat icon="water" label={t('weather.humidity')} value={`${Math.round(forecast.now.humidity)}%`} />
+          <WeatherStat icon="navigate" label={t('weather.wind')} value={`${Math.round(forecast.now.windSpeed)} km/h`} />
+          <WeatherStat icon="umbrella" label={t('weather.rain24')} value={`${rain24.toFixed(1)} mm`} />
         </View>
       </Card>
 
+      {/* Farm decisions driven by weather */}
+      <SectionTitle title={t('weather.farmImpact')} icon="leaf" />
       <Card>
-        <Text style={styles.sectionTitle}>{t('weather.forecast')}</Text>
-        
-        {weather.forecast.map((day, index) => (
-          <View key={index} style={styles.forecastItem}>
-            <Text style={styles.dayText}>{day.day}</Text>
-            <Ionicons name={getIcon(day.condition) as any} size={32} color="#f59e0b" />
-            <Text style={styles.tempText}>{day.temp}°C</Text>
-            <Text style={styles.conditionText}>{day.condition}</Text>
-          </View>
-        ))}
+        <DecisionRow
+          icon="water"
+          label={t('weather.irrigationCall')}
+          value={rain24 > 8 ? t('weather.holdIrrigation') : t('weather.irrigateNormal')}
+          tone={rain24 > 8 ? 'info' : 'neutral'}
+        />
+        <DecisionRow
+          icon="rainy"
+          label={t('weather.sprayWindow')}
+          value={sprayOk ? t('weather.sprayOk') : t('weather.sprayWait')}
+          tone={sprayOk ? 'ok' : 'warn'}
+        />
+        <DecisionRow
+          icon="paper-plane"
+          label={t('weather.droneFlight')}
+          value={
+            forecast.now.windSpeed <= DRONE_LIMITS.maxWindKmh
+              ? t('weather.flightOk')
+              : `${t('weather.flightBlocked')} (${Math.round(forecast.now.windSpeed)} km/h)`
+          }
+          tone={forecast.now.windSpeed <= DRONE_LIMITS.maxWindKmh ? 'ok' : 'danger'}
+        />
+        <DecisionRow
+          icon="thermometer"
+          label={t('weather.heatStress')}
+          value={
+            forecast.daily.slice(0, 3).some((d) => d.tempMax > tempCeiling)
+              ? t('weather.heatExpected')
+              : t('weather.heatNone')
+          }
+          tone={forecast.daily.slice(0, 3).some((d) => d.tempMax > tempCeiling) ? 'warn' : 'ok'}
+        />
+        {rain48 > 35 ? (
+          <DecisionRow
+            icon="alert-circle"
+            label={t('weather.heavyRain')}
+            value={`${Math.round(rain48)} mm ${t('weather.in48h')}`}
+            tone="danger"
+          />
+        ) : null}
       </Card>
 
-      <Card>
-        <Text style={styles.sectionTitle}>Farming Tips</Text>
-        
-        <View style={styles.tipItem}>
-          <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
-          <Text style={styles.tipText}>
-            Weather is ideal for planting. Ensure adequate irrigation.
-          </Text>
-        </View>
-        
-        <View style={styles.tipItem}>
-          <Ionicons name="warning" size={24} color="#f59e0b" />
-          <Text style={styles.tipText}>
-            Day 4 forecast shows rain. Plan irrigation accordingly.
-          </Text>
-        </View>
-        
-        <View style={styles.tipItem}>
-          <Ionicons name="leaf" size={24} color="#10b981" />
-          <Text style={styles.tipText}>
-            Current conditions are perfect for crop spraying activities.
-          </Text>
-        </View>
+      {/* Hourly */}
+      {hourly.length > 2 ? (
+        <>
+          <SectionTitle title={t('weather.next24h')} icon="time" />
+          <Card>
+            <Text style={s.chartTitle}>{t('weather.temp')}</Text>
+            <TrendChart
+              series={tempSeries}
+              width={width}
+              xLabels={xLabels}
+              threshold={tempCeiling}
+              thresholdLabel={t('weather.cropCeiling')}
+              height={140}
+            />
+            <ChartLegend series={tempSeries} />
+
+            <View style={s.chartDivider} />
+
+            <Text style={s.chartTitle}>{t('weather.rain')}</Text>
+            <TrendChart series={rainSeries} width={width} xLabels={xLabels} height={110} />
+            <ChartLegend series={rainSeries} />
+          </Card>
+        </>
+      ) : null}
+
+      {/* 7-day */}
+      <SectionTitle title={t('weather.forecast7')} icon="calendar" />
+      <Card padded={false}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.dailyRow}>
+          {forecast.daily.map((d, i) => {
+            const desc = describeWeather(d.code);
+            const hot = d.tempMax > tempCeiling;
+            return (
+              <View key={d.date} style={[s.dayCard, hot && { backgroundColor: colors.warnBg }]}>
+                <Text style={s.dayName}>
+                  {i === 0
+                    ? t('weather.today')
+                    : new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' })}
+                </Text>
+                <Ionicons
+                  name={desc.icon as keyof typeof Ionicons.glyphMap}
+                  size={24}
+                  color={hot ? colors.warn : colors.brandLight}
+                  style={{ marginVertical: 6 }}
+                />
+                <Text style={s.dayHigh}>{Math.round(d.tempMax)}°</Text>
+                <Text style={s.dayLow}>{Math.round(d.tempMin)}°</Text>
+                {d.precipProbability > 20 ? (
+                  <Text style={s.dayRain}>{d.precipProbability}%</Text>
+                ) : (
+                  <Text style={s.dayRainNone}>—</Text>
+                )}
+                {d.windMax > DRONE_LIMITS.maxWindKmh ? (
+                  <Ionicons name="warning" size={10} color={colors.danger} style={{ marginTop: 3 }} />
+                ) : null}
+              </View>
+            );
+          })}
+        </ScrollView>
       </Card>
-      </ScrollView>
-    </SafeAreaView>
+
+      {/* Climate risk recommendations */}
+      {climateRisk && climateRisk.recommendations.length > 0 ? (
+        <>
+          <SectionTitle title={t('home.recommendedAction')} icon="bulb" />
+          <Card>
+            <RecommendationList recommendations={climateRisk.recommendations} />
+          </Card>
+        </>
+      ) : null}
+
+      {snapshot ? (
+        <Text style={s.footnote}>
+          {t('weather.sensorCompare', {
+            sensor: Math.round(snapshot.reading.airTemp),
+            station: Math.round(forecast.now.temp),
+          })}
+        </Text>
+      ) : null}
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  header: {
-    backgroundColor: '#3b82f6',
-    padding: 20,
-    paddingTop: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#dbeafe',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  currentWeather: {
+function WeatherStat({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <View style={s.weatherStat}>
+      <Ionicons name={icon as keyof typeof Ionicons.glyphMap} size={17} color={colors.brandLight} />
+      <Text style={s.weatherStatValue}>{value}</Text>
+      <Text style={s.weatherStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function DecisionRow({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  tone: StatusTone;
+}) {
+  const { fg, bg } = toneColors(tone);
+  return (
+    <View style={s.decisionRow}>
+      <View style={[s.decisionIcon, { backgroundColor: bg }]}>
+        <Ionicons name={icon} size={15} color={fg} />
+      </View>
+      <Text style={s.decisionLabel}>{label}</Text>
+      <Text style={[s.decisionValue, { color: fg }]} numberOfLines={2}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  nowRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  nowTemp: { fontSize: 40, fontWeight: '800', color: colors.text, letterSpacing: -1.2 },
+  nowLabel: { ...typography.body, color: colors.textMuted, marginTop: -2 },
+  statRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    marginBottom: 24,
-  },
-  tempSection: {
-    alignItems: 'center',
-  },
-  temp: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  condition: {
-    fontSize: 18,
-    color: '#6b7280',
-    marginTop: 4,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 16,
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    borderTopColor: colors.border,
   },
-  statItem: {
+  weatherStat: { flex: 1, alignItems: 'center', gap: 3 },
+  weatherStatValue: { ...typography.bodyStrong, color: colors.text },
+  weatherStatLabel: { ...typography.tiny, color: colors.textFaint },
+  decisionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
+  decisionIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  decisionLabel: { ...typography.small, color: colors.textMuted, flex: 1 },
+  decisionValue: { ...typography.small, fontWeight: '700', flex: 1.2, textAlign: 'right' },
+  chartTitle: { ...typography.tiny, color: colors.textMuted, marginBottom: spacing.sm },
+  chartDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.lg },
+  dailyRow: { paddingHorizontal: spacing.md, paddingVertical: spacing.md, gap: spacing.sm },
+  dayCard: {
     alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceAlt,
+    minWidth: 62,
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 8,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginTop: 4,
-  },
-  forecastItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  dayText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  tempText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    width: 50,
-    textAlign: 'right',
-  },
-  conditionText: {
-    fontSize: 14,
-    color: '#6b7280',
-    width: 80,
-    textAlign: 'right',
-  },
-  tipItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-    gap: 12,
-  },
-  tipText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#374151',
-    lineHeight: 20,
+  dayName: { ...typography.tiny, color: colors.textMuted },
+  dayHigh: { ...typography.bodyStrong, color: colors.text },
+  dayLow: { ...typography.tiny, color: colors.textFaint },
+  dayRain: { ...typography.tiny, color: colors.info, marginTop: 3 },
+  dayRainNone: { ...typography.tiny, color: colors.textFaint, marginTop: 3 },
+  footnote: {
+    ...typography.tiny,
+    color: colors.textFaint,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    lineHeight: 16,
   },
 });

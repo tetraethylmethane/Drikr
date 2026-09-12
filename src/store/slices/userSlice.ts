@@ -1,37 +1,41 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
-}
+import { UserProfile } from '../../types';
 
 interface UserState {
-  user: User | null;
+  profile: UserProfile | null;
   isAuthenticated: boolean;
+  /** Null until the stored session has been checked on launch. */
+  sessionChecked: boolean;
 }
 
 const initialState: UserState = {
-  user: null,
+  profile: null,
   isAuthenticated: false,
+  sessionChecked: false,
 };
 
 const userSlice = createSlice({
   name: 'user',
   initialState,
   reducers: {
-    setUser: (state, action: PayloadAction<User>) => {
-      state.user = action.payload;
+    signIn: (state, action: PayloadAction<UserProfile>) => {
+      state.profile = action.payload;
       state.isAuthenticated = true;
+      state.sessionChecked = true;
     },
-    logout: (state) => {
-      state.user = null;
+    updateProfile: (state, action: PayloadAction<Partial<UserProfile>>) => {
+      if (state.profile) Object.assign(state.profile, action.payload);
+    },
+    sessionChecked: (state) => {
+      state.sessionChecked = true;
+    },
+    signOut: (state) => {
+      state.profile = null;
       state.isAuthenticated = false;
+      state.sessionChecked = true;
     },
   },
 });
 
-export const { setUser, logout } = userSlice.actions;
+export const { signIn, updateProfile, sessionChecked, signOut } = userSlice.actions;
 export default userSlice.reducer;
-
