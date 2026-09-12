@@ -5,15 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#22c55e",
-      "resizeMode": "contain"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "plugins": [
       "expo-status-bar",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#22c55e",
+          "resizeMode": "contain"
+        }
+      ],
       "@react-native-voice/voice"
     ],
     "ios": {
