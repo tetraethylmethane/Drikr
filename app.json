@@ -12,6 +12,10 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "plugins": [
+      "expo-status-bar",
+      "@react-native-voice/voice"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.Drikr.app"

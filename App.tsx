@@ -83,7 +83,10 @@ export default function App() {
       <SafeAreaProvider>
         <Provider store={store}>
           <NavigationContainer theme={navTheme}>
-            <StatusBar style="dark" backgroundColor={colors.bg} />
+            {/* Android is edge-to-edge from SDK 54 on, so expo-status-bar no
+                longer takes backgroundColor — the bar sits over the app's own
+                background, which `Screen` already paints with colors.bg. */}
+            <StatusBar style="dark" />
             <AppNavigator />
           </NavigationContainer>
         </Provider>

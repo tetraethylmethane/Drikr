@@ -16,9 +16,10 @@ import { colors, radii, spacing, typography } from '../../theme';
 /**
  * Charts drawn directly with react-native-svg.
  *
- * victory-native 36 is in the dependency list but is built for the old React
- * lifecycle and is risky on React 19 / RN 0.81. These are small enough to own
- * outright, and doing so keeps full control of the theme tokens and the
+ * Hand-rolled rather than pulling a charting library. victory-native 36 was
+ * once a dependency here but is built for the old React lifecycle and did not
+ * survive the move to React 19, so it was dropped. These are small enough to
+ * own outright, and doing so keeps full control of the theme tokens and the
  * axis/label behaviour on a narrow phone screen.
  */
 
