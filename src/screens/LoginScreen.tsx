@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -198,9 +199,7 @@ export default function LoginScreen() {
     return (
       <Screen>
         <View style={s.restoring}>
-          <View style={s.logoMark}>
-            <Ionicons name="leaf" size={28} color="#fff" />
-          </View>
+          <Image source={require('../../assets/icon.png')} style={s.logoMark} resizeMode="contain" />
           <ActivityIndicator color={colors.brand} style={{ marginTop: spacing.xl }} />
         </View>
       </Screen>
@@ -230,10 +229,8 @@ export default function LoginScreen() {
 
           {/* Brand */}
           <View style={s.brand}>
-            <View style={s.logoMark}>
-              <Ionicons name="leaf" size={28} color="#fff" />
-            </View>
-            <Text style={s.brandName}>DRIKR</Text>
+            <Image source={require('../../assets/icon.png')} style={s.logoMark} resizeMode="contain" />
+            <Text style={s.brandName}>DRIKR SYSTEMS</Text>
             <Text style={s.tagline}>{t('login.tagline')}</Text>
           </View>
 
@@ -362,16 +359,10 @@ const s = StyleSheet.create({
   langChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   langText: { ...typography.small, color: colors.textMuted, fontWeight: '700' },
   brand: { alignItems: 'center', paddingTop: spacing.xxl, paddingBottom: spacing.xl },
-  logoMark: {
-    width: 62,
-    height: 62,
-    borderRadius: 18,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.raised,
-  },
-  brandName: { fontSize: 26, fontWeight: '900', color: colors.brand, letterSpacing: 2.5, marginTop: spacing.md },
+  // No coloured tile behind it: the mark is black and reads best on the light
+  // surface, which is how the logo is natively presented.
+  logoMark: { width: 64, height: 64 },
+  brandName: { fontSize: 22, fontWeight: '900', color: colors.text, letterSpacing: 1.8, marginTop: spacing.md },
   tagline: {
     ...typography.small,
     color: colors.textMuted,

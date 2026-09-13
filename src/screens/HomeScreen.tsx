@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -133,11 +133,11 @@ export default function HomeScreen() {
         {/* Brand bar + language switch, per the mockup */}
         <View style={s.brandBar}>
           <View style={s.brandLeft}>
-            <View style={s.logoMark}>
-              <Ionicons name="leaf" size={16} color="#fff" />
-            </View>
+            {/* The real mark, not a stand-in glyph. It is pure black, so it sits
+                on the light surface rather than a coloured tile. */}
+            <Image source={require('../../assets/icon.png')} style={s.logoMark} resizeMode="contain" />
             <View>
-              <Text style={s.brandName}>DRIKR</Text>
+              <Text style={s.brandName}>DRIKR SYSTEMS</Text>
               <Text style={s.brandSub}>Smart Farming</Text>
             </View>
           </View>
@@ -361,15 +361,8 @@ const s = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   brandLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  logoMark: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    backgroundColor: colors.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandName: { fontSize: 16, fontWeight: '900', color: colors.brand, letterSpacing: 1.1 },
+  logoMark: { width: 30, height: 30 },
+  brandName: { fontSize: 14, fontWeight: '900', color: colors.text, letterSpacing: 0.9 },
   brandSub: { fontSize: 9.5, fontWeight: '600', color: colors.textFaint, letterSpacing: 0.4 },
   brandRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   langBtn: {
