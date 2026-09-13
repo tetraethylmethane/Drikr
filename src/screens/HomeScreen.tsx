@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { cropProfile } from '../config/agronomy';
 import { HEADLINE_METRICS, metricSeries } from '../config/metrics';
 import { telemetrySource } from '../services/telemetry';
+import { staleAfterMs } from '../services/hardware';
 import { activeAlerts, sortAlerts } from '../services/alertEngine';
 import { activeMissions, proposeMission } from '../services/drone';
 import { describeWeather } from '../services/weather';
@@ -114,7 +115,10 @@ export default function HomeScreen() {
       })
     : '—';
 
-  const stale = lastSyncAt ? Date.now() - lastSyncAt > 120_000 : true;
+  // Staleness is judged against the push interval, not a fixed window: with
+  // sleeping nodes a 4-minute-old reading is healthy, and the old 2-minute rule
+  // would have flagged every node as stale forever.
+  const stale = lastSyncAt ? Date.now() - lastSyncAt > staleAfterMs() : true;
   const weather = forecast ? describeWeather(forecast.now.code) : null;
 
   return (
@@ -179,7 +183,7 @@ export default function HomeScreen() {
               {snapshot ? ` · ${snapshot.nodesOnline}/${snapshot.nodesTotal} ${t('home.nodes')}` : ''}
             </Text>
           </View>
-          <LiveDot stale={stale} />
+          <LiveDot at={snapshot?.at ?? null} stale={stale} />
         </View>
 
         {plot ? (

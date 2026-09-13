@@ -258,12 +258,52 @@ export function Pill({
 }
 
 /** Pulsing dot + "Live" label, matching the mockup's live indicator. */
-export function LiveDot({ label = 'Live', stale }: { label?: string; stale?: boolean }) {
-  const tone = stale ? colors.warn : colors.ok;
+export function LiveDot({
+  label = 'Live',
+  stale,
+  at,
+  staleAfterMs,
+}: {
+  label?: string;
+  stale?: boolean;
+  /** When the data was measured. Given this, the dot reports age instead of "Live". */
+  at?: number | null;
+  staleAfterMs?: number;
+}) {
+  /**
+   * Shows age rather than "Live" whenever a timestamp is available.
+   *
+   * "Live" was honest when the master polled every second. Battery nodes now
+   * sleep between readings, so a four-minute-old value is normal and healthy -
+   * but a badge saying "Live" over it would be a straightforward lie, and the
+   * one number a farmer needs in order to trust a reading is how old it is.
+   */
+  if (at == null) {
+    const tone = stale ? colors.warn : colors.ok;
+    return (
+      <View style={s.liveWrap}>
+        <View style={[s.liveDot, { backgroundColor: tone }]} />
+        <Text style={[s.liveText, { color: tone }]}>{stale ? 'Stale' : label}</Text>
+      </View>
+    );
+  }
+
+  const ageMs = Math.max(0, Date.now() - at);
+  const limit = staleAfterMs ?? 12 * 60_000;
+  const isStale = ageMs > limit;
+  const tone = isStale ? colors.warn : ageMs < 90_000 ? colors.ok : colors.info;
+
+  const text =
+    ageMs < 45_000
+      ? 'just now'
+      : ageMs < 3_600_000
+        ? `${Math.round(ageMs / 60_000)} min ago`
+        : `${Math.floor(ageMs / 3_600_000)}h ago`;
+
   return (
     <View style={s.liveWrap}>
       <View style={[s.liveDot, { backgroundColor: tone }]} />
-      <Text style={[s.liveText, { color: tone }]}>{stale ? 'Stale' : label}</Text>
+      <Text style={[s.liveText, { color: tone }]}>{text}</Text>
     </View>
   );
 }

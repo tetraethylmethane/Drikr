@@ -45,6 +45,18 @@ export interface MasterNode {
   a3: number;
   out1: boolean;
   out2: boolean;
+  /** Battery volts. Only meaningful when hasVbat is true. */
+  vbat: number;
+  hasVbat: boolean;
+  /** LoRa RSSI of the last report, dBm. */
+  rssi: number;
+  reports: number;
+  /** A relay command is queued, waiting for this node's next wake. */
+  pendingCmd: boolean;
+  /** Milliseconds until the node is next expected to report. */
+  nextInMs: number;
+  /** The push interval the master is currently handing out. */
+  intervalMs: number;
 }
 
 export interface MasterStatus {
@@ -69,6 +81,41 @@ export const UNKNOWN_METRIC = -1;
 
 export function isKnown(value: number): boolean {
   return value >= 0;
+}
+
+/**
+ * Li-ion state of charge from terminal voltage.
+ *
+ * Deliberately crude. A single cell sits at 4.2 V full and 3.0 V empty, but the
+ * discharge curve is flat across the middle, so voltage is a poor fuel gauge.
+ * This is piecewise rather than linear to avoid the usual lie of reporting 50%
+ * for most of the discharge and then falling off a cliff. It is good enough to
+ * answer "does this node need attention soon", which is all the UI claims.
+ */
+export function liIonPercent(volts: number): number {
+  if (!Number.isFinite(volts) || volts <= 0) return UNKNOWN_METRIC;
+  const points: Array<[number, number]> = [
+    [3.0, 0], [3.5, 10], [3.7, 35], [3.85, 60], [4.0, 80], [4.2, 100],
+  ];
+  if (volts <= points[0][0]) return 0;
+  if (volts >= points[points.length - 1][0]) return 100;
+  for (let i = 1; i < points.length; i++) {
+    const [v1, p1] = points[i - 1];
+    const [v2, p2] = points[i];
+    if (volts <= v2) {
+      return Math.round(p1 + ((volts - v1) * (p2 - p1)) / (v2 - v1));
+    }
+  }
+  return UNKNOWN_METRIC;
+}
+
+/**
+ * LoRa RSSI to a 0-100 bar. -40 dBm is effectively touching, -120 dBm is the
+ * noise floor at SF7.
+ */
+export function rssiToPercent(rssi: number): number {
+  const clamped = Math.max(-120, Math.min(-40, rssi));
+  return Math.round(((clamped + 120) / 80) * 100);
 }
 
 function baseUrl(): string {
@@ -162,6 +209,10 @@ export function mapNodeToReading(
     reading.light = Math.round(node.lux);
   }
 
+  // Soil temperature is not measured by any node in this build, so it stays
+  // absent rather than being borrowed from air temperature - they diverge by
+  // several degrees and the irrigation model would act on the wrong one.
+
   // Analog channels: only those with a calibrated probe fitted.
   if (node.hasAds1115) {
     const raw: Record<AnalogChannelKey, number> = {
@@ -201,11 +252,12 @@ export function mapNodeToSensorNode(node: MasterNode, plot: Plot, gridRef: GridR
     label: node.id,
     gridRef,
     status: node.online ? 'online' : node.everSeen ? 'degraded' : 'offline',
-    // DrikrProtocol carries no battery level or RSSI, so there is nothing to
-    // report. UNKNOWN_METRIC renders as a dash; showing 100% would be a
-    // measurement the hardware never made.
-    batteryPct: UNKNOWN_METRIC,
-    signalPct: UNKNOWN_METRIC,
+    // Battery is real when a divider is fitted, and genuinely unknown when it
+    // is not - a node without one reports hasVbat false rather than 0 V, so the
+    // UI shows a dash instead of a fake flat battery.
+    batteryPct: node.hasVbat ? liIonPercent(node.vbat) : UNKNOWN_METRIC,
+    // RSSI is real in v2. Mapped to 0-100 for the existing signal display.
+    signalPct: Number.isFinite(node.rssi) && node.rssi !== 0 ? rssiToPercent(node.rssi) : UNKNOWN_METRIC,
     lastSeenAt: Date.now() - (node.ageMs ?? 0),
     // No calibration date is tracked on-device; 0 would imply "just calibrated".
     daysSinceCalibration: UNKNOWN_METRIC,
@@ -213,4 +265,24 @@ export function mapNodeToSensorNode(node: MasterNode, plot: Plot, gridRef: GridR
   };
 }
 
-export const HARDWARE_STALE_AFTER_MS = 15000;
+/**
+ * Fallback staleness window, used only before the master has told us its push
+ * interval.
+ *
+ * 15 s was correct when the master polled every second. Nodes now sleep between
+ * readings, so a 4-minute-old value is normal and healthy - judging it against a
+ * 15 s window would mark every node stale forever.
+ */
+export const HARDWARE_STALE_AFTER_MS = 12 * 60_000;
+
+/**
+ * How old a reading may be before the UI calls it stale: about two and a half
+ * missed slots. Derived from the master's own interval so raising the interval
+ * cannot silently mark every node stale.
+ */
+export function staleAfterMs(intervalMs?: number): number {
+  if (!intervalMs || !Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return HARDWARE_STALE_AFTER_MS;
+  }
+  return Math.round(intervalMs * 2.5);
+}

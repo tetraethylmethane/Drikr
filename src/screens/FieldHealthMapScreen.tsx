@@ -173,7 +173,7 @@ export default function FieldHealthMapScreen() {
                 {t('map.interpolated')}
               </Text>
             </View>
-            <LiveDot />
+            <LiveDot at={cell?.reading.at ?? map?.at ?? null} />
           </View>
 
           <Card>
