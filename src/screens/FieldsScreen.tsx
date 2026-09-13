@@ -28,6 +28,7 @@ export default function FieldsScreen() {
   const { plots, nodes, selectedPlotId, usingDemoFarm } = useAppSelector((s) => s.farm);
   const { snapshots, maps } = useAppSelector((s) => s.telemetry);
   const alerts = useAppSelector((s) => s.alerts.items);
+  const sensorsPaired = useAppSelector((s) => s.settings.sensorsPaired);
 
   const alertsByPlot = useMemo(() => {
     const out: Record<string, number> = {};
@@ -161,6 +162,19 @@ export default function FieldsScreen() {
             </Card>
           );
         })}
+
+        {!sensorsPaired ? (
+          <Card onPress={() => navigation.navigate('SensorSetup')} tone="info">
+            <View style={s.linkRow}>
+              <Ionicons name="hardware-chip" size={20} color={colors.info} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.linkTitle}>{t('setup.connectTitle')}</Text>
+                <Text style={s.linkSub}>{t('setup.s1Body')}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+            </View>
+          </Card>
+        ) : null}
 
         <Card onPress={() => navigation.navigate('SensorNodes')}>
           <View style={s.linkRow}>

@@ -118,8 +118,36 @@ export function rssiToPercent(rssi: number): number {
   return Math.round(((clamped + 120) / 80) * 100);
 }
 
+/**
+ * Address entered or discovered during in-app setup.
+ *
+ * Takes precedence over API_BASE_URL from .env, because a farmer pairing
+ * hardware in a field cannot edit a build-time file, and a router may hand the
+ * master a different address after a reboot. Pushed in from the store at
+ * startup, since this module is not React.
+ */
+let pairedAddress: string | null = null;
+
+export function registerMasterAddress(address: string | null): void {
+  pairedAddress = address && address.trim().length > 0 ? address.trim() : null;
+}
+
+/** Whether any master address is configured at all, from either source. */
+export function hasMasterAddress(): boolean {
+  return Boolean(pairedAddress || env.apiBaseUrl);
+}
+
+export function masterBaseUrl(): string {
+  const raw = pairedAddress || env.apiBaseUrl;
+  if (!raw) return '';
+  // Accept "drikr.local", "192.168.1.50" or a full URL - a farmer typing an
+  // address off a label will not include a scheme.
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  return withScheme.replace(/\/+$/, '');
+}
+
 function baseUrl(): string {
-  return env.apiBaseUrl.replace(/\/+$/, '');
+  return masterBaseUrl();
 }
 
 async function get<T>(path: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {

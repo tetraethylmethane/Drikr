@@ -27,7 +27,7 @@ import {
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, typography } from '../theme';
 import { RiskDomain } from '../types';
-import { AppHeader, Badge, Button, Card, Divider, Screen, SectionTitle } from '../components/ui';
+import { AppHeader, Badge, Button, Card, Divider, ListRow, Screen, SectionTitle } from '../components/ui';
 
 const DOMAINS: RiskDomain[] = ['cropHealth', 'pest', 'nutrient', 'irrigation', 'climate'];
 const REFRESH_OPTIONS = [10, 20, 60, 300];
@@ -51,6 +51,8 @@ export default function ProfileScreen() {
   const { plots, usingDemoFarm } = useAppSelector((s) => s.farm);
   const alerts = useAppSelector((s) => s.alerts.items);
   const online = useAppSelector((s) => s.telemetry.online);
+  const masterAddress = useAppSelector((s) => s.settings.masterAddress);
+  const sensorsPaired = useAppSelector((s) => s.settings.sensorsPaired);
 
   const [queued, setQueued] = useState<number | null>(null);
 
@@ -251,6 +253,29 @@ export default function ProfileScreen() {
               dispatch(setRequireDroneConfirmation(true));
             }
           }}
+        />
+      </Card>
+
+      {/* Hardware pairing */}
+      <SectionTitle title={t('nodes.title')} icon="hardware-chip" />
+      <Card>
+        <ListRow
+          title={t('setup.connectTitle')}
+          subtitle={
+            sensorsPaired
+              ? masterAddress ?? t('profile.simulated')
+              : t('fields.demoNotice')
+          }
+          icon="hardware-chip"
+          tone={sensorsPaired ? 'ok' : 'neutral'}
+          onPress={() => navigation.navigate('SensorSetup')}
+        />
+        <Divider />
+        <ListRow
+          title={t('nodes.title')}
+          subtitle={t('nodes.subtitle')}
+          icon="pulse"
+          onPress={() => navigation.navigate('SensorNodes')}
         />
       </Card>
 

@@ -25,6 +25,7 @@ import RiskDetailScreen from '../screens/RiskDetailScreen';
 import ScoutScreen from '../screens/ScoutScreen';
 import SensorDetailScreen from '../screens/SensorDetailScreen';
 import SensorNodesScreen from '../screens/SensorNodesScreen';
+import SensorSetupScreen from '../screens/SensorSetupScreen';
 import WeatherScreen from '../screens/WeatherScreen';
 
 /**
@@ -133,6 +134,7 @@ export default function AppNavigator() {
       <Stack.Screen name="FieldHealthMap" component={FieldHealthMapScreen} />
       <Stack.Screen name="FieldSetup" component={FieldSetupScreen} />
       <Stack.Screen name="SensorNodes" component={SensorNodesScreen} />
+      <Stack.Screen name="SensorSetup" component={SensorSetupScreen} />
       <Stack.Screen name="SensorDetail" component={SensorDetailScreen} />
       <Stack.Screen name="AlertDetail" component={AlertDetailScreen} />
       <Stack.Screen name="RiskDetail" component={RiskDetailScreen} />

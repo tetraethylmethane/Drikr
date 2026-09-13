@@ -6,7 +6,9 @@ import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import i18n from './src/i18n/i18n';
+import { registerCalibration } from './src/config/calibration';
 import { configureNotifications } from './src/services/notifications';
+import { registerMasterAddress } from './src/services/hardware';
 import { drainOutbox, isOnline } from './src/services/offline';
 import { createStore } from './src/store/store';
 import { loadPersistedState } from './src/store/persist';
@@ -49,6 +51,16 @@ export default function App() {
       if (language && language !== i18n.language) {
         await i18n.changeLanguage(language);
       }
+
+      // Push persisted settings into the non-React modules that need them
+      // before the first render, so the very first telemetry tick already uses
+      // the paired master and the farmer's probe calibration rather than
+      // defaults it would then have to correct.
+      const settings = persisted?.settings as
+        | { masterAddress?: string | null; calibration?: Record<string, never> }
+        | undefined;
+      registerMasterAddress(settings?.masterAddress ?? null);
+      if (settings?.calibration) registerCalibration(settings.calibration);
 
       configureNotifications();
       setStore(createStore(persisted));

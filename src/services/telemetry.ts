@@ -9,7 +9,7 @@ import {
 } from './simulator/engine';
 import { SEED_SIM_PROFILES } from './simulator/seed';
 import apiClient from './api';
-import { fetchNodes, gridRefForNode, mapNodeToReading } from './hardware';
+import { fetchNodes, gridRefForNode, hasMasterAddress, mapNodeToReading } from './hardware';
 
 /**
  * Single seam between the app and field telemetry.
@@ -26,7 +26,9 @@ registerSimProfiles(SEED_SIM_PROFILES);
 export type TelemetrySource = 'hardware' | 'simulated';
 
 export function telemetrySource(): TelemetrySource {
-  return hasTelemetryBackend() ? 'hardware' : 'simulated';
+  // Either source of address counts: .env for a developer, in-app pairing for a
+  // farmer. Checking only the env var would leave a paired master unused.
+  return hasMasterAddress() || hasTelemetryBackend() ? 'hardware' : 'simulated';
 }
 
 const HISTORY_POINTS = 24;
@@ -81,7 +83,7 @@ export async function fetchLatestReadings(
   nodes: SensorNode[],
   at: number = Date.now()
 ): Promise<Record<string, SensorReading>> {
-  if (hasTelemetryBackend()) {
+  if (telemetrySource() === 'hardware') {
     const remote = (await fetchRemoteReadings(plot)) ?? (await fetchGatewayReadings(plot.id));
     // No fall-through to the simulator here: if the gateway is configured but
     // unreachable, the UI must say the nodes are offline rather than quietly

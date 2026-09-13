@@ -20,6 +20,27 @@ interface SettingsState {
   requireDroneConfirmation: boolean;
   units: 'metric';
   onboarded: boolean;
+
+  /**
+   * Address of the sensor master, as entered or discovered during setup.
+   *
+   * Persisted separately from API_BASE_URL in .env: a farmer pairing hardware in
+   * the field cannot edit a build-time file, and their router may hand the master
+   * a different address after a reboot.
+   */
+  masterAddress: string | null;
+  /** True once hardware pairing has completed at least once. */
+  sensorsPaired: boolean;
+
+  /**
+   * Farmer-recorded calibration for the analog channels, keyed by channel.
+   *
+   * Overrides the defaults in config/calibration.ts. Persisted because a probe
+   * calibration is physical work the farmer did with a glass of water — losing it
+   * on restart would mean doing it again, and stale curves silently produce wrong
+   * soil readings.
+   */
+  calibration: Record<string, { fitted: boolean; points: { at: [number, number]; to: [number, number] } }>;
 }
 
 const initialState: SettingsState = {
@@ -33,6 +54,9 @@ const initialState: SettingsState = {
   requireDroneConfirmation: true,
   units: 'metric',
   onboarded: false,
+  masterAddress: null,
+  sensorsPaired: false,
+  calibration: {},
 };
 
 const settingsSlice = createSlice({
@@ -68,10 +92,34 @@ const settingsSlice = createSlice({
     setOnboarded: (state, action: PayloadAction<boolean>) => {
       state.onboarded = action.payload;
     },
+    setMasterAddress: (state, action: PayloadAction<string | null>) => {
+      state.masterAddress = action.payload;
+    },
+    setSensorsPaired: (state, action: PayloadAction<boolean>) => {
+      state.sensorsPaired = action.payload;
+    },
+    setChannelCalibration: (
+      state,
+      action: PayloadAction<{
+        channel: string;
+        fitted: boolean;
+        points: { at: [number, number]; to: [number, number] };
+      }>
+    ) => {
+      const { channel, fitted, points } = action.payload;
+      state.calibration[channel] = { fitted, points };
+    },
+    clearChannelCalibration: (state, action: PayloadAction<string>) => {
+      delete state.calibration[action.payload];
+    },
   },
 });
 
 export const {
+  setMasterAddress,
+  setSensorsPaired,
+  setChannelCalibration,
+  clearChannelCalibration,
   setLanguage,
   setConfidenceThreshold,
   toggleMutedDomain,

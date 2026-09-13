@@ -83,12 +83,40 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /**
+ * Farmer-recorded overrides, applied on top of the defaults above.
+ *
+ * convertAnalog() is called from the telemetry path, which is not React, so the
+ * store cannot be read directly. The store pushes its persisted calibration in
+ * here at startup instead - the same pattern registerSimProfiles() uses for the
+ * simulator scenarios.
+ */
+let overrides: Partial<Record<AnalogChannelKey, { fitted: boolean; points: AnalogChannel['points'] }>> = {};
+
+export function registerCalibration(
+  next: Record<string, { fitted: boolean; points: AnalogChannel['points'] }>
+): void {
+  overrides = {};
+  (Object.keys(ANALOG_CHANNELS) as AnalogChannelKey[]).forEach((key) => {
+    const entry = next[key];
+    if (entry) overrides[key] = entry;
+  });
+}
+
+/** The channel as it should actually behave, defaults merged with any override. */
+export function resolveChannel(key: AnalogChannelKey): AnalogChannel {
+  const base = ANALOG_CHANNELS[key];
+  const over = overrides[key];
+  if (!over) return base;
+  return { ...base, fitted: over.fitted, points: over.points };
+}
+
+/**
  * Convert a channel's volts to its metric value via two-point linear interpolation.
  * Returns null when the channel has no probe fitted, which callers must treat as
  * "no reading" rather than zero.
  */
 export function convertAnalog(key: AnalogChannelKey, volts: number): number | null {
-  const ch = ANALOG_CHANNELS[key];
+  const ch = resolveChannel(key);
   if (!ch.fitted) return null;
   if (!Number.isFinite(volts)) return null;
 
@@ -103,7 +131,7 @@ export function convertAnalog(key: AnalogChannelKey, volts: number): number | nu
 /** Channels with a probe actually attached. */
 export function fittedChannels(): AnalogChannelKey[] {
   return (Object.keys(ANALOG_CHANNELS) as AnalogChannelKey[]).filter(
-    (k) => ANALOG_CHANNELS[k].fitted
+    (k) => resolveChannel(k).fitted
   );
 }
 
