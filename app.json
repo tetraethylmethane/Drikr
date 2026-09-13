@@ -18,7 +18,16 @@
           "resizeMode": "contain"
         }
       ],
-      "@react-native-voice/voice"
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Drikr uses the microphone so you can ask Kisan Mitra questions by speaking.",
+          "speechRecognitionPermission": "Drikr uses speech recognition to understand your farming questions.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": false,

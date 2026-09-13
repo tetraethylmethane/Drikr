@@ -1,50 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Speech from 'expo-speech';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { SPEECH_LOCALE } from './useLanguage';
 import { Language } from '../types';
 
 /**
  * Voice input/output for the voice-first interface.
  *
- * `@react-native-voice/voice` is a native module: it is absent in Expo Go, so the
- * import is guarded and `sttAvailable` reports the truth to the UI rather than the
- * mic button failing silently. Text-to-speech (expo-speech) works everywhere, which
- * matters most — a farmer who cannot read the screen can still be *told* the
- * recommendation.
+ * Speech-to-text runs on `expo-speech-recognition`. The previous implementation used
+ * `@react-native-voice/voice`, which is deprecated (npm itself points here) and
+ * could not be built at all on a modern toolchain: its android/build.gradle calls
+ * `jcenter()`, removed from Gradle 8+, which hard-failed the Android build.
+ *
+ * Text-to-speech stays on expo-speech. That matters more than STT for this app — a
+ * farmer who cannot read the screen can still be *told* the recommendation.
+ *
+ * The public shape of this hook is unchanged from the old implementation, so no
+ * calling screen needed edits.
  */
-
-type VoiceModule = {
-  start: (locale: string) => Promise<void>;
-  stop: () => Promise<void>;
-  destroy: () => Promise<void>;
-  removeAllListeners: () => void;
-  onSpeechStart?: (e: unknown) => void;
-  onSpeechEnd?: (e: unknown) => void;
-  onSpeechResults?: (e: { value?: string[] }) => void;
-  onSpeechPartialResults?: (e: { value?: string[] }) => void;
-  onSpeechError?: (e: unknown) => void;
-};
-
-let VoiceImpl: VoiceModule | null = null;
-let voiceLoadFailed = false;
-
-function loadVoice(): VoiceModule | null {
-  if (VoiceImpl || voiceLoadFailed) return VoiceImpl;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('@react-native-voice/voice');
-    VoiceImpl = (mod?.default ?? mod) as VoiceModule;
-    // In Expo Go the JS module resolves but the native side is missing.
-    if (typeof VoiceImpl?.start !== 'function') {
-      VoiceImpl = null;
-      voiceLoadFailed = true;
-    }
-  } catch {
-    voiceLoadFailed = true;
-    VoiceImpl = null;
-  }
-  return VoiceImpl;
-}
 
 export interface UseVoiceOptions {
   language: Language;
@@ -56,65 +32,121 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
   const [partial, setPartial] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
 
-  const voice = loadVoice();
-  const sttAvailable = voice !== null;
+  // Guards against a final result arriving after the user already stopped.
+  const activeRef = useRef(false);
 
+  /**
+   * Availability is resolved at runtime rather than assumed: a device can lack any
+   * speech recognition service, and the UI surfaces this instead of offering a mic
+   * button that silently does nothing.
+   */
+  const [sttAvailable, setSttAvailable] = useState(false);
   useEffect(() => {
-    if (!voice) return;
+    try {
+      const services = ExpoSpeechRecognitionModule.getSpeechRecognitionServices?.() ?? [];
+      const onDevice = ExpoSpeechRecognitionModule.supportsOnDeviceRecognition?.() ?? false;
+      setSttAvailable(services.length > 0 || onDevice);
+    } catch {
+      // Native module absent (Expo Go, or an unsupported platform).
+      setSttAvailable(false);
+    }
+  }, []);
 
-    voice.onSpeechStart = () => {
-      setListening(true);
-      setError(null);
-    };
-    voice.onSpeechEnd = () => setListening(false);
-    voice.onSpeechPartialResults = (e) => {
-      if (e.value?.[0]) setPartial(e.value[0]);
-    };
-    voice.onSpeechResults = (e) => {
-      const text = e.value?.[0];
+  useSpeechRecognitionEvent('start', () => {
+    activeRef.current = true;
+    setListening(true);
+    setError(null);
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    activeRef.current = false;
+    setListening(false);
+    setPartial('');
+  });
+
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results?.[0]?.transcript?.trim();
+    if (!transcript) return;
+
+    if (event.isFinal) {
+      activeRef.current = false;
       setListening(false);
       setPartial('');
-      if (text) onResultRef.current?.(text);
-    };
-    voice.onSpeechError = () => {
-      setListening(false);
-      setPartial('');
-      setError('Could not hear that. Try again.');
-    };
+      onResultRef.current?.(transcript);
+    } else {
+      // Interim text is shown live so the farmer can see they are being heard.
+      setPartial(transcript);
+    }
+  });
 
-    return () => {
-      voice.destroy().then(() => voice.removeAllListeners()).catch(() => undefined);
-    };
-  }, [voice]);
+  useSpeechRecognitionEvent('error', (event) => {
+    activeRef.current = false;
+    setListening(false);
+    setPartial('');
+    // "no-speech" is a normal outcome of a quiet field, not a fault worth shouting about.
+    setError(event.error === 'no-speech' ? 'Did not hear anything. Try again.' : 'Could not hear that. Try again.');
+  });
+
+  useSpeechRecognitionEvent('nomatch', () => {
+    activeRef.current = false;
+    setListening(false);
+    setPartial('');
+    setError('Did not catch that. Try again.');
+  });
 
   const startListening = useCallback(async () => {
-    if (!voice) {
-      setError('Voice input needs a development build (not available in Expo Go).');
-      return;
-    }
     try {
-      setPartial('');
       setError(null);
-      await voice.start(SPEECH_LOCALE[language]);
+      setPartial('');
+
+      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!perm.granted) {
+        setError('Microphone permission is needed to ask by voice.');
+        return;
+      }
+
+      ExpoSpeechRecognitionModule.start({
+        lang: SPEECH_LOCALE[language],
+        interimResults: true,
+        // One question at a time: the recogniser should stop on its own when the
+        // farmer stops talking, rather than holding the mic open.
+        continuous: false,
+        maxAlternatives: 1,
+      });
       setListening(true);
     } catch {
-      setError('Could not start the microphone.');
+      setError('Voice input is unavailable on this device.');
       setListening(false);
     }
-  }, [voice, language]);
+  }, [language]);
 
   const stopListening = useCallback(async () => {
-    if (!voice) return;
     try {
-      await voice.stop();
+      // stop() still delivers a final result; abort() would discard what was said.
+      ExpoSpeechRecognitionModule.stop();
     } catch {
       /* ignore */
     }
     setListening(false);
-  }, [voice]);
+  }, []);
+
+  // Never leave the microphone open behind a screen the user has left.
+  useEffect(() => {
+    return () => {
+      if (activeRef.current) {
+        try {
+          ExpoSpeechRecognitionModule.abort();
+        } catch {
+          /* ignore */
+        }
+      }
+      Speech.stop();
+    };
+  }, []);
 
   const speak = useCallback(
     (text: string) => {
