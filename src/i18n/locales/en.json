@@ -357,7 +357,7 @@
     "welcome": "Welcome",
     "enterPhone": "Enter your mobile number to sign in or create an account.",
     "invalidPhone": "Enter a valid 10-digit mobile number",
-    "offlineCheck": "Could not reach the server. You can still try your PIN.",
+    "offlineCheck": "Could not reach the server. You can continue — your PIN will be saved on this phone.",
     "createPin": "Create your PIN",
     "createPinBody": "Choose a 4 to 6 digit PIN. You will use it to sign in.",
     "enterPin": "Enter your PIN",
@@ -371,7 +371,9 @@
     "createAccount": "Create account",
     "signIn": "Sign in",
     "pinSecurity": "Your PIN is encrypted on this phone and never sent as text.",
-    "footer": "Smart India Hackathon 2026 · PS 26180 · Team Drikr"
+    "footer": "Smart India Hackathon 2026 · PS 26180 · Team Drikr",
+    "connectionErrorNoLocal": "Could not reach the server, and no account is saved on this phone. Connect to the internet once to create your account.",
+    "offlineNotice": "Working offline. Your account is saved on this phone and will sync when you are back online."
   },
   "profile": {
     "title": "Profile",

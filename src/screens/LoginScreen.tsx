@@ -15,7 +15,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { db, hashPIN, validatePINFormat, verifyPIN } from '../config/firebase';
-import { getSession, setSession } from '../utils/session';
+import {
+  getLocalCredential,
+  getSession,
+  markCredentialSynced,
+  saveLocalCredential,
+  setSession,
+} from '../utils/session';
 import { LANGUAGES, useLanguage } from '../hooks/useLanguage';
 import { sessionChecked, signIn } from '../store/slices/userSlice';
 import { useAppDispatch } from '../store/hooks';
@@ -47,6 +53,8 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState('');
+  // True when Firestore could not be reached, so the UI can say so honestly.
+  const [offline, setOffline] = useState(false);
 
   const fullPhone = `${countryCode}${phone.replace(/\D/g, '')}`;
 
@@ -83,11 +91,20 @@ export default function LoginScreen() {
     try {
       const snap = await getDoc(doc(db, 'users', fullPhone));
       setIsSignup(!snap.exists());
+      setOffline(false);
       setStep('pin');
     } catch {
-      // Offline: allow the PIN step anyway; sign-in will retry against Firestore.
-      setError(t('login.offlineCheck'));
-      setIsSignup(false);
+      /**
+       * Firestore is unreachable. Fall back to whatever this device knows.
+       *
+       * This previously forced login mode, which trapped a new user: the login
+       * path also needs Firestore, so someone signing up for the first time with
+       * no backend could never get in at all. Deciding from the local credential
+       * instead means a first-time user gets the signup form and can proceed.
+       */
+      const local = await getLocalCredential(fullPhone);
+      setIsSignup(local === null);
+      setOffline(true);
       setStep('pin');
     } finally {
       setLoading(false);
@@ -113,19 +130,25 @@ export default function LoginScreen() {
     }
     setError('');
     setLoading(true);
+    const pinHash = hashPIN(pin);
+    // Saved before the network call, so an account created offline can still sign
+    // in on this device afterwards.
+    await saveLocalCredential(fullPhone, pinHash, false);
+
     try {
       const token = await finish();
       await setDoc(doc(db, 'users', fullPhone), {
         phoneNumber: fullPhone,
-        pinHash: hashPIN(pin),
+        pinHash,
         sessionToken: token,
         language,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      await markCredentialSynced(fullPhone);
     } catch {
-      // The local session is already set, so the farmer is in; the profile write
-      // will be retried on the next successful connection.
+      // Already signed in locally; the profile mirrors to Firestore on a later
+      // launch once it is reachable.
     } finally {
       setLoading(false);
     }
@@ -157,7 +180,15 @@ export default function LoginScreen() {
         { merge: true }
       );
     } catch {
-      setError(t('login.connectionError'));
+      // Firestore unreachable: verify against the credential stored on this device.
+      const local = await getLocalCredential(fullPhone);
+      if (local && verifyPIN(pin, local.pinHash)) {
+        await finish();
+        return;
+      }
+      setError(
+        local ? t('login.wrongPin') : t('login.connectionErrorNoLocal')
+      );
     } finally {
       setLoading(false);
     }
@@ -284,6 +315,13 @@ export default function LoginScreen() {
                   />
                 ) : null}
 
+                {offline ? (
+                  <View style={s.offlineBox}>
+                    <Ionicons name="cloud-offline-outline" size={14} color={colors.warn} />
+                    <Text style={s.offlineText}>{t('login.offlineNotice')}</Text>
+                  </View>
+                ) : null}
+
                 {error ? <Text style={s.error}>{error}</Text> : null}
 
                 <Button
@@ -386,6 +424,16 @@ const s = StyleSheet.create({
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: spacing.md },
   backText: { ...typography.small, color: colors.brand, fontWeight: '700' },
   error: { ...typography.small, color: colors.danger, marginTop: spacing.md, lineHeight: 18 },
+  offlineBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: colors.warnBg,
+  },
+  offlineText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
   security: {
     ...typography.tiny,
     color: colors.textFaint,
