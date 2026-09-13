@@ -41,9 +41,10 @@ import { AppHeader, Badge, Button, Card, Divider, Screen } from '../components/u
  *    a working app on simulated data, which is labelled as simulated.
  *  - Read aloud on demand, consistent with the voice-first intent.
  *
- * The provisioning step is deliberately instructional rather than automatic:
- * Android 10+ will not let an app silently join another network, so pretending
- * otherwise would just fail confusingly.
+ * The provisioning step is instructional rather than automatic because Android
+ * 10+ will not let an app silently join another network. It hands off to the
+ * firmware's own captive portal on Drikr_Setup, which serves a network picker -
+ * so the farmer never types an SSID by hand and never edits firmware.
  */
 
 type Step = 'power' | 'firstTime' | 'provision' | 'find' | 'nodes' | 'calibrate' | 'done';
@@ -226,7 +227,18 @@ export default function SensorSetupScreen() {
           <Text style={s.hint}>{t('setup.s3Hint')}</Text>
 
           <Divider style={{ marginVertical: spacing.lg }} />
-          <Button title={t('setup.s3Done')} icon="arrow-forward" onPress={() => setStep('find')} />
+
+          {/* Recovery, surfaced here rather than buried in help: this is the
+              step where a farmer with a previously-configured box gets stuck. */}
+          <Text style={s.label}>{t('setup.resetWifi')}</Text>
+          <Text style={s.hint}>{t('setup.resetWifiBody')}</Text>
+
+          <Button
+            title={t('setup.s3Done')}
+            icon="arrow-forward"
+            onPress={() => setStep('find')}
+            style={s.action}
+          />
         </Card>
       ) : null}
 
