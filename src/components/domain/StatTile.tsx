@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { METRICS, formatMetric, metricStatus, readMetric } from '../../config/metrics';
+import { METRICS, formatMetric, metricStatus, readMetricOrNull } from '../../config/metrics';
 import { colors, radii, spacing, toneColors, typography } from '../../theme';
 import { Plot, SensorMetric, SensorReading } from '../../types';
 import { Sparkline } from '../charts';
@@ -26,7 +26,7 @@ export function StatTile({
   compact?: boolean;
 }) {
   const meta = METRICS[metric];
-  const value = readMetric(reading, metric);
+  const value = readMetricOrNull(reading, metric);
   const status = metricStatus(metric, value, plot);
   const { fg, bg } = toneColors(status.tone);
 
@@ -77,7 +77,7 @@ export function MiniStat({
   plot: Plot | null;
 }) {
   const meta = METRICS[metric];
-  const value = readMetric(reading, metric);
+  const value = readMetricOrNull(reading, metric);
   const status = metricStatus(metric, value, plot);
   const { fg } = toneColors(status.tone);
 

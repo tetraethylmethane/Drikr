@@ -61,9 +61,16 @@ export interface MetricStatus {
  */
 export function metricStatus(
   metric: SensorMetric,
-  value: number,
+  value: number | null,
   plot: Plot | null
 ): MetricStatus {
+  // A metric the hardware does not measure has no status. Real sensor nodes report
+  // only some of these fields, and scoring an absent value as 0 would show
+  // "0 — Normal" for a probe that simply is not fitted.
+  if (value == null || !Number.isFinite(value)) {
+    return { tone: 'neutral', label: 'No sensor' };
+  }
+
   const crop = cropProfile(plot?.crop);
 
   if (metric === 'pestActivity') {
@@ -106,7 +113,8 @@ export function metricStatus(
   return { tone: 'ok', label: 'Normal' };
 }
 
-export function formatMetric(metric: SensorMetric, value: number): string {
+export function formatMetric(metric: SensorMetric, value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—';
   const meta = METRICS[metric];
   if (metric === 'light') return `${Math.round(value / 1000)}k`;
   if (metric === 'pestActivity') return String(Math.round(value));
@@ -116,6 +124,24 @@ export function formatMetric(metric: SensorMetric, value: number): string {
 
 export function readMetric(reading: SensorReading, metric: SensorMetric): number {
   return (reading[metric] as number) ?? 0;
+}
+
+/** True when the reading actually carries this metric. */
+export function hasMetric(reading: SensorReading | null | undefined, metric: SensorMetric): boolean {
+  if (!reading) return false;
+  const v = reading[metric] as number | undefined;
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * The value, or null when the sensor did not report it.
+ * Prefer this over readMetric anywhere the result is shown to a farmer.
+ */
+export function readMetricOrNull(
+  reading: SensorReading | null | undefined,
+  metric: SensorMetric
+): number | null {
+  return hasMetric(reading, metric) ? ((reading as SensorReading)[metric] as number) : null;
 }
 
 /** Series for a metric over recent readings, for the sparkline. */

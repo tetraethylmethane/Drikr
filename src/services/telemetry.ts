@@ -9,6 +9,7 @@ import {
 } from './simulator/engine';
 import { SEED_SIM_PROFILES } from './simulator/seed';
 import apiClient from './api';
+import { fetchNodes, gridRefForNode, mapNodeToReading } from './hardware';
 
 /**
  * Single seam between the app and field telemetry.
@@ -31,7 +32,38 @@ export function telemetrySource(): TelemetrySource {
 const HISTORY_POINTS = 24;
 const HISTORY_STEP_MS = 30 * 60_000;
 
-async function fetchRemoteReadings(plotId: string): Promise<Record<string, SensorReading> | null> {
+/**
+ * Read the Drikr sensor Master.
+ *
+ * The Master serves whole nodes, not per-plot readings, so its two slaves are
+ * mapped onto grid positions within the selected plot.
+ *
+ * Hardware readings are PARTIAL: the nodes measure air temperature, humidity,
+ * light and (with a BME680) a VOC index, plus whichever analog probes are fitted
+ * and calibrated. Metrics the hardware cannot measure are deliberately left
+ * absent rather than zero-filled, so `metricStatus` renders them as "no sensor"
+ * and the risk engine never scores a fabricated value. Filling the gaps with the
+ * simulator would be worse than showing nothing — it would be indistinguishable
+ * from real data.
+ */
+async function fetchRemoteReadings(plot: Plot): Promise<Record<string, SensorReading> | null> {
+  const rows = await fetchNodes();
+  if (!rows || rows.length === 0) return null;
+
+  const reporting = rows.filter((n) => n.everSeen);
+  if (reporting.length === 0) return null;
+
+  const out: Record<string, SensorReading> = {};
+  reporting.forEach((node, i) => {
+    const gridRef = gridRefForNode(plot, i, reporting.length);
+    const partial = mapNodeToReading(node, plot.id, gridRef);
+    out[partial.nodeId] = partial as SensorReading;
+  });
+  return out;
+}
+
+/** Legacy per-plot backend shape, kept for a future Drikr cloud gateway. */
+async function fetchGatewayReadings(plotId: string): Promise<Record<string, SensorReading> | null> {
   try {
     const res = await apiClient.get(`/telemetry/plots/${plotId}/latest`, { timeout: 8000 });
     const rows = res.data?.readings;
@@ -40,8 +72,6 @@ async function fetchRemoteReadings(plotId: string): Promise<Record<string, Senso
     for (const r of rows as SensorReading[]) out[r.nodeId] = r;
     return out;
   } catch {
-    // Low-connectivity is expected in the field: fall through to the simulator so
-    // the farmer still sees the last coherent picture rather than an empty screen.
     return null;
   }
 }
@@ -52,8 +82,11 @@ export async function fetchLatestReadings(
   at: number = Date.now()
 ): Promise<Record<string, SensorReading>> {
   if (hasTelemetryBackend()) {
-    const remote = await fetchRemoteReadings(plot.id);
-    if (remote) return remote;
+    const remote = (await fetchRemoteReadings(plot)) ?? (await fetchGatewayReadings(plot.id));
+    // No fall-through to the simulator here: if the gateway is configured but
+    // unreachable, the UI must say the nodes are offline rather than quietly
+    // substituting invented readings that look identical to real ones.
+    return remote ?? {};
   }
   const out: Record<string, SensorReading> = {};
   for (const node of nodes) {
