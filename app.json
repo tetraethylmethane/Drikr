@@ -35,6 +35,17 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ]
-    }
+    },
+    "extra": {
+      "GEMINI_API_KEY": "",
+      "OPENAI_API_KEY": "",
+      "DATA_GOV_API_KEY": "579b464db66ec23bdd000001e19e51f7932a45cd5b94455207ab83ea",
+      "DATA_GOV_RESOURCE_ID": "9ef84268-d588-465a-a308-a864a43d0070",
+      "API_BASE_URL": "",
+      "eas": {
+        "projectId": "91de863c-13ab-459a-84da-191750b6700e"
+      }
+    },
+    "owner": "tem005"
   }
 }
