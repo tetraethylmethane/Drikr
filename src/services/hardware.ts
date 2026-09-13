@@ -60,6 +60,17 @@ export interface MasterStatus {
 
 const DEFAULT_TIMEOUT_MS = 6000;
 
+/**
+ * Sentinel for a field the hardware does not report.
+ * Negative is used rather than 0 because 0 is a legitimate reading for battery
+ * and signal, and rather than null so SensorNode stays a plain numeric type.
+ */
+export const UNKNOWN_METRIC = -1;
+
+export function isKnown(value: number): boolean {
+  return value >= 0;
+}
+
 function baseUrl(): string {
   return env.apiBaseUrl.replace(/\/+$/, '');
 }
@@ -190,13 +201,14 @@ export function mapNodeToSensorNode(node: MasterNode, plot: Plot, gridRef: GridR
     label: node.id,
     gridRef,
     status: node.online ? 'online' : node.everSeen ? 'degraded' : 'offline',
-    // The slaves report no battery or RSSI over this protocol, so these are not
-    // invented: 100 means "unknown, mains/USB assumed" and is labelled as such
-    // in the UI rather than shown as a measured percentage.
-    batteryPct: 100,
-    signalPct: node.online ? 100 : 0,
+    // DrikrProtocol carries no battery level or RSSI, so there is nothing to
+    // report. UNKNOWN_METRIC renders as a dash; showing 100% would be a
+    // measurement the hardware never made.
+    batteryPct: UNKNOWN_METRIC,
+    signalPct: UNKNOWN_METRIC,
     lastSeenAt: Date.now() - (node.ageMs ?? 0),
-    daysSinceCalibration: 0,
+    // No calibration date is tracked on-device; 0 would imply "just calibrated".
+    daysSinceCalibration: UNKNOWN_METRIC,
     hasBiosensor: false,
   };
 }

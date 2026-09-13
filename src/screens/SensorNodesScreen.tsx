@@ -1,15 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { telemetrySource } from '../services/telemetry';
+import { MasterStatus, fetchStatus, isKnown, setOutput } from '../services/hardware';
 import { formatAge } from '../services/offline';
 import { calibrateNode } from '../store/slices/farmSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, StatusTone, toneColors, typography } from '../theme';
 import { SensorNode } from '../types';
-import { AppHeader, Badge, Button, Card, Screen, SectionTitle } from '../components/ui';
+import { AppHeader, Badge, Button, Card, Divider, Screen, SectionTitle } from '../components/ui';
 
 /**
  * Sensor node health.
@@ -34,10 +35,45 @@ export default function SensorNodesScreen() {
     }));
   }, [plots, nodes]);
 
+  // Only polled in hardware mode; there is no master to ask in simulator mode.
+  const isHardware = telemetrySource() === 'hardware';
+  const [master, setMaster] = useState<MasterStatus | null>(null);
+  const [masterChecked, setMasterChecked] = useState(false);
+
+  useEffect(() => {
+    if (!isHardware) return;
+    let cancelled = false;
+    const poll = async () => {
+      const st = await fetchStatus();
+      if (!cancelled) {
+        setMaster(st);
+        setMasterChecked(true);
+      }
+    };
+    void poll();
+    const id = setInterval(poll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isHardware]);
+
+  const [relayBusy, setRelayBusy] = useState<string | null>(null);
+  const toggleRelay = useCallback(async (nodeLabel: string, output: 1 | 2, on: boolean) => {
+    setRelayBusy(nodeLabel + '-' + output);
+    await setOutput(nodeLabel, output, on);
+    setRelayBusy(null);
+  }, []);
+
   const totals = useMemo(() => {
     const online = nodes.filter((n) => n.status === 'online').length;
-    const lowBattery = nodes.filter((n) => n.batteryPct < 25).length;
-    const needsCalibration = nodes.filter((n) => n.daysSinceCalibration > 30).length;
+    // isKnown guards matter here: real LoRa nodes report no battery or
+    // calibration date and carry UNKNOWN_METRIC (-1), which would otherwise be
+    // counted as a flat battery and an overdue calibration on every node.
+    const lowBattery = nodes.filter((n) => isKnown(n.batteryPct) && n.batteryPct < 25).length;
+    const needsCalibration = nodes.filter(
+      (n) => isKnown(n.daysSinceCalibration) && n.daysSinceCalibration > 30
+    ).length;
     return { total: nodes.length, online, lowBattery, needsCalibration };
   }, [nodes]);
 
@@ -56,9 +92,41 @@ export default function SensorNodesScreen() {
           />
         </View>
         <Text style={s.sourceNote}>
-          {telemetrySource() === 'simulated' ? t('nodes.simulatedNote') : t('nodes.hardwareNote')}
+          {isHardware ? t('nodes.hardwareNote') : t('nodes.simulatedNote')}
         </Text>
       </Card>
+
+      {isHardware ? (
+        <Card tone={master ? (master.loraReady ? 'ok' : 'warn') : 'danger'}>
+          <View style={s.masterRow}>
+            <Ionicons
+              name={master ? (master.loraReady ? 'radio' : 'warning') : 'cloud-offline'}
+              size={18}
+              color={master ? (master.loraReady ? colors.ok : colors.warn) : colors.danger}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={s.masterTitle}>
+                {master
+                  ? master.loraReady
+                    ? t('nodes.masterOk')
+                    : t('nodes.masterNoLora')
+                  : masterChecked
+                    ? t('nodes.masterUnreachable')
+                    : t('nodes.masterChecking')}
+              </Text>
+              {master ? (
+                <Text style={s.sourceNote}>
+                  {master.mode === 'station' ? t('nodes.modeStation') : t('nodes.modeAp')}
+                  {' \u00b7 '}
+                  {master.ip}
+                </Text>
+              ) : masterChecked ? (
+                <Text style={s.sourceNote}>{t('nodes.masterUnreachableHelp')}</Text>
+              ) : null}
+            </View>
+          </View>
+        </Card>
+      ) : null}
 
       {byPlot.map(({ plot, nodes: plotNodes }) => (
         <React.Fragment key={plot.id}>
@@ -69,6 +137,8 @@ export default function SensorNodesScreen() {
               node={node}
               lastReadingAt={readings[node.id]?.at}
               onCalibrate={() => dispatch(calibrateNode(node.id))}
+              onToggleRelay={isHardware ? toggleRelay : undefined}
+              relayBusy={relayBusy}
             />
           ))}
         </React.Fragment>
@@ -90,10 +160,14 @@ function NodeCard({
   node,
   lastReadingAt,
   onCalibrate,
+  onToggleRelay,
+  relayBusy,
 }: {
   node: SensorNode;
   lastReadingAt?: number;
   onCalibrate: () => void;
+  onToggleRelay?: (nodeLabel: string, output: 1 | 2, on: boolean) => void;
+  relayBusy?: string | null;
 }) {
   const { t } = useTranslation();
   const statusTone: StatusTone =
@@ -102,8 +176,9 @@ function NodeCard({
   const calTone: StatusTone =
     node.daysSinceCalibration > 45 ? 'danger' : node.daysSinceCalibration > 30 ? 'warn' : 'ok';
 
-  const batteryIcon =
-    node.batteryPct > 70
+  const batteryIcon = !isKnown(node.batteryPct)
+    ? 'battery-half'
+    : node.batteryPct > 70
       ? 'battery-full'
       : node.batteryPct > 30
         ? 'battery-half'
@@ -137,23 +212,57 @@ function NodeCard({
         />
       </View>
 
+      {/* A dash means the protocol carries no such field, not a reading of zero. */}
       <View style={s.metricsRow}>
-        <NodeMetric icon={batteryIcon} label={t('nodes.battery')} value={`${node.batteryPct}%`} tone={batteryTone} />
+        <NodeMetric
+          icon={batteryIcon}
+          label={t('nodes.battery')}
+          value={isKnown(node.batteryPct) ? node.batteryPct + '%' : '\u2014'}
+          tone={isKnown(node.batteryPct) ? batteryTone : 'neutral'}
+        />
         <NodeMetric
           icon="cellular"
           label={t('nodes.signal')}
-          value={`${node.signalPct}%`}
-          tone={node.signalPct < 30 ? 'warn' : 'ok'}
+          value={isKnown(node.signalPct) ? node.signalPct + '%' : '\u2014'}
+          tone={isKnown(node.signalPct) ? (node.signalPct < 30 ? 'warn' : 'ok') : 'neutral'}
         />
         <NodeMetric
           icon="options"
           label={t('nodes.calibrated')}
-          value={`${node.daysSinceCalibration}d`}
-          tone={calTone}
+          value={isKnown(node.daysSinceCalibration) ? node.daysSinceCalibration + 'd' : '\u2014'}
+          tone={isKnown(node.daysSinceCalibration) ? calTone : 'neutral'}
         />
       </View>
 
-      {node.daysSinceCalibration > 30 ? (
+      {onToggleRelay ? (
+        <>
+          <Divider style={{ marginTop: spacing.md }} />
+          <Text style={s.relayLabel}>{t('nodes.outputs')}</Text>
+          <View style={s.relayRow}>
+            <Button
+              title={t('nodes.output') + ' 1'}
+              icon="flash"
+              size="sm"
+              variant="secondary"
+              loading={relayBusy === node.label + '-1'}
+              onPress={() => onToggleRelay(node.label, 1, true)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              title={t('nodes.output') + ' 2'}
+              icon="flash"
+              size="sm"
+              variant="secondary"
+              loading={relayBusy === node.label + '-2'}
+              onPress={() => onToggleRelay(node.label, 2, true)}
+              style={{ flex: 1 }}
+            />
+          </View>
+          <Text style={s.relayHelp}>{t('nodes.outputsHelp')}</Text>
+        </>
+      ) : null}
+
+      {isKnown(node.daysSinceCalibration) && node.daysSinceCalibration > 30 ? (
         <View style={s.calibrateRow}>
           <Text style={s.calibrateNote}>{t('nodes.driftWarning')}</Text>
           <Button title={t('nodes.markCalibrated')} size="sm" variant="secondary" onPress={onCalibrate} />
@@ -248,6 +357,11 @@ const s = StyleSheet.create({
     borderRadius: radii.sm,
   },
   calibrateNote: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 15 },
+  masterRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  masterTitle: { ...typography.bodyStrong, color: colors.text },
+  relayLabel: { ...typography.tiny, color: colors.textMuted, marginTop: spacing.md },
+  relayRow: { flexDirection: 'row', gap: spacing.sm, marginTop: 6 },
+  relayHelp: { ...typography.tiny, color: colors.textFaint, marginTop: 6, lineHeight: 15 },
   hwRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.sm },
   hwLabel: { ...typography.bodyStrong, color: colors.text },
   hwDetail: { ...typography.tiny, color: colors.textMuted, marginTop: 2 },

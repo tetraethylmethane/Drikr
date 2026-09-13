@@ -157,7 +157,17 @@
     "bme": "Temperature, humidity, pressure, VOC",
     "canopy": "Canopy sensors",
     "biosensor": "Electrochemical biosensor",
-    "biosensorDetail": "SPCE + potentiostat, pathogen-specific reagents"
+    "biosensorDetail": "SPCE + potentiostat, pathogen-specific reagents",
+    "masterOk": "Sensor master online",
+    "masterNoLora": "Master online, radio not ready",
+    "masterUnreachable": "Sensor master unreachable",
+    "masterChecking": "Looking for the sensor master...",
+    "masterUnreachableHelp": "Check the master is powered and on the same network, and that API_BASE_URL in .env points at it.",
+    "modeStation": "Station mode",
+    "modeAp": "Access point mode",
+    "outputs": "RELAY OUTPUTS",
+    "output": "Output",
+    "outputsHelp": "Switches the relay on this node, for a pump or valve. The node reports its own state back on the next poll."
   },
   "drone": {
     "title": "Drone Operations",
