@@ -39,7 +39,28 @@ export const env = {
   ),
   /** Optional Drikr telemetry/ML backend. Empty means run on simulated telemetry. */
   apiBaseUrl: read('API_BASE_URL', process.env.EXPO_PUBLIC_API_BASE_URL),
+  /**
+   * Firebase web config. Previously hardcoded in src/config/firebase.ts, which
+   * meant the keys were committed and the project could not be swapped without a
+   * code change.
+   */
+  firebase: {
+    apiKey: read('FIREBASE_API_KEY', process.env.EXPO_PUBLIC_FIREBASE_API_KEY),
+    authDomain: read('FIREBASE_AUTH_DOMAIN', process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN),
+    projectId: read('FIREBASE_PROJECT_ID', process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID),
+    storageBucket: read('FIREBASE_STORAGE_BUCKET', process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET),
+    messagingSenderId: read(
+      'FIREBASE_MESSAGING_SENDER_ID',
+      process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    ),
+    appId: read('FIREBASE_APP_ID', process.env.EXPO_PUBLIC_FIREBASE_APP_ID),
+    measurementId: read('FIREBASE_MEASUREMENT_ID', process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID),
+  },
 };
+
+/** True when a Firebase project is configured. Without it, auth uses the local PIN only. */
+export const hasFirebase = (): boolean =>
+  Boolean(env.firebase.apiKey && env.firebase.projectId);
 
 /** True when a cloud LLM is configured for Kisan Mitra; otherwise the offline engine answers. */
 export const hasCloudAi = (): boolean => Boolean(env.geminiApiKey || env.openaiApiKey);

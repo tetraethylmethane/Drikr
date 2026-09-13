@@ -4,6 +4,7 @@ import { getFirestore, Firestore } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import CryptoJS from 'crypto-js';
+import env from './env';
 
 // Import getReactNativePersistence - for Firebase v9+, this should be available
 // If not available, we'll handle it gracefully
@@ -40,13 +41,13 @@ try {
  * EXPO_PUBLIC_FIREBASE_APP_ID=...
  */
 const firebaseConfig = {
-  apiKey: "AIzaSyATRvs350dLeJ74shzSfmkeOkrpLzFmUg8",
-  authDomain: "Drikr-8321a.firebaseapp.com",
-  projectId: "Drikr-8321a",
-  storageBucket: "Drikr-8321a.firebasestorage.app",
-  messagingSenderId: "380615900110",
-  appId: "1:380615900110:web:0a639593b651eaad05899f",
-  measurementId: "G-V8WKCFQN0C"
+  apiKey: env.firebase.apiKey,
+  authDomain: env.firebase.authDomain,
+  projectId: env.firebase.projectId,
+  storageBucket: env.firebase.storageBucket,
+  messagingSenderId: env.firebase.messagingSenderId,
+  appId: env.firebase.appId,
+  measurementId: env.firebase.measurementId,
 };
 
 // Initialize Firebase
