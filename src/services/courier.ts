@@ -29,6 +29,8 @@ import { masterBaseUrl } from './hardware';
 const CURSOR_KEY = 'courier:cursor';
 const COLLECT_TIMEOUT_MS = 8000;
 const PAGE_LIMIT = 120;
+/** The relay 413s above 500 readings per request; stay well under it. */
+const CHUNK_SIZE = 400;
 
 export interface CourierReading {
   seq: number;
@@ -239,18 +241,29 @@ export async function sendToRelay(payloads: unknown[]): Promise<boolean> {
   }
 
   for (const [plotId, readings] of byPlot) {
-    try {
-      const res = await fetch(env.ingestUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-drikr-key': env.ingestKey,
-        },
-        body: JSON.stringify({ plotId, via: 'courier', readings }),
-      });
-      if (!res.ok) return false;
-    } catch {
-      return false;
+    // Chunked because the relay rejects more than 500 readings in one request
+    // with a 413. Without this, a queue that built up over several walk-passes
+    // would fail every single retry and eventually hit the attempt ceiling —
+    // losing exactly the backlog the courier exists to carry.
+    for (let i = 0; i < readings.length; i += CHUNK_SIZE) {
+      const chunk = readings.slice(i, i + CHUNK_SIZE);
+      try {
+        const res = await fetch(env.ingestUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-drikr-key': env.ingestKey,
+          },
+          body: JSON.stringify({ plotId, via: 'courier', readings: chunk }),
+        });
+        // A failure part-way through re-sends the chunks that already landed,
+        // because the caller retries the whole batch. That is safe: the relay
+        // keys each document by timestamp and node, so a re-upload overwrites
+        // instead of duplicating.
+        if (!res.ok) return false;
+      } catch {
+        return false;
+      }
     }
   }
   return true;
