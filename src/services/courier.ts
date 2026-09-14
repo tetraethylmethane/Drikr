@@ -70,12 +70,19 @@ async function writeCursor(seq: number): Promise<void> {
 /**
  * Collect everything the Master holds that we have not already taken.
  *
+ * `plotId` has to be supplied by the caller: the Master reports node ids (S1,
+ * S2) and knows nothing about the app's plots, so it cannot label a reading with
+ * one. Without this the payload reached the relay with no plotId and every
+ * reading was filed under "unknown" — the whole history landing in the wrong
+ * place, silently.
+ *
  * Returns null when the Master is not reachable, which is the normal case — the
  * phone is only near it some of the time, and that is not an error.
  */
-export async function collectFromMaster(): Promise<CollectResult | null> {
+export async function collectFromMaster(plotId: string): Promise<CollectResult | null> {
   const base = masterBaseUrl();
   if (!base) return null;
+  if (!plotId) return null;
 
   let cursor = await readCursor();
   let collected = 0;
@@ -119,6 +126,8 @@ export async function collectFromMaster(): Promise<CollectResult | null> {
     for (const r of body.readings) {
       await enqueue('telemetry', {
         ...r,
+        // Required by the relay, and only the app knows it.
+        plotId,
         // The Master has no real-time clock, so it reports age and the phone
         // supplies the wall time. A timestamp the Master invented would be
         // worse than useless.
@@ -156,12 +165,32 @@ export async function sendToRelay(payloads: unknown[]): Promise<boolean> {
   if (!hasIngest() || payloads.length === 0) return false;
 
   // Group by plot, since the relay takes one plot per request.
+  //
+  // A payload with no plotId is dropped rather than filed under a placeholder.
+  // Inventing "unknown" would put real readings in a plot that does not exist,
+  // where they would look like data rather than like the mistake they are. The
+  // only way this happens is an item queued before plotId was required.
   const byPlot = new Map<string, unknown[]>();
+  let unattributed = 0;
   for (const p of payloads) {
-    const plotId = (p as { plotId?: string }).plotId ?? 'unknown';
+    const plotId = (p as { plotId?: string }).plotId;
+    if (!plotId) {
+      unattributed += 1;
+      continue;
+    }
     const list = byPlot.get(plotId) ?? [];
     list.push(p);
     byPlot.set(plotId, list);
+  }
+
+  if (byPlot.size === 0) {
+    // Nothing sendable. Report success so the queue clears: these items carry no
+    // plot and never will, so retrying them forever would block every later
+    // upload behind data that cannot be saved.
+    if (unattributed > 0) {
+      console.warn(`[courier] dropped ${unattributed} reading(s) with no plotId`);
+    }
+    return true;
   }
 
   for (const [plotId, readings] of byPlot) {
@@ -183,30 +212,34 @@ export async function sendToRelay(payloads: unknown[]): Promise<boolean> {
 }
 
 /**
- * Upload whatever the outbox holds.
+ * Upload the queued readings.
  *
- * `send` is injected rather than hardcoded so the transport can change — a Cloud
- * Function now, a cellular Master or a satellite pass later — without touching
- * the queue semantics.
+ * Uses drainOutboxKind rather than drainOutbox, for two reasons that both
+ * mattered:
  *
- * Returns null when there is nothing to do: offline, or no relay configured. In
- * both cases the readings stay queued rather than being dropped, because the
- * phone may well be the only copy.
+ *  - The whole batch goes in one request. Draining item-by-item would have made
+ *    two hundred HTTPS round trips out of one walk-past, which on a rural
+ *    connection mostly means two hundred timeouts.
+ *  - It touches only telemetry. The generic drain asks the handler about every
+ *    item and counts a refusal as a failed attempt, so a courier run would have
+ *    burned the retry budget on the farmer's own alert feedback and community
+ *    posts until the queue dropped them.
+ *
+ * `send` stays injectable so the transport can change — a Cloud Function now, a
+ * cellular Master or a satellite pass later — without touching queue semantics.
+ *
+ * Returns null when there is nothing to do: offline, or no relay configured.
+ * Either way the readings stay queued rather than dropped, because the phone is
+ * very likely the only copy.
  */
 export async function uploadQueued(
-  send: (payload: unknown) => Promise<boolean> = (p) => sendToRelay([p])
-): Promise<{ sent: number; remaining: number } | null> {
+  send: (payloads: unknown[]) => Promise<boolean> = sendToRelay
+): Promise<{ sent: number; remaining: number; dropped: number } | null> {
   if (!hasIngest()) return null;
   if (!(await isOnline())) return null;
 
-  const { drainOutbox } = await import('./offline');
-  return drainOutbox(async (item) => {
-    if (item.kind !== 'telemetry') {
-      // Leave other kinds for their own handlers rather than dropping them.
-      return false;
-    }
-    return send(item.payload);
-  });
+  const { drainOutboxKind } = await import('./offline');
+  return drainOutboxKind('telemetry', send);
 }
 
 /** Human-readable summary for the Sensor Nodes screen. */

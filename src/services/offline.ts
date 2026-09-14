@@ -130,6 +130,61 @@ export async function drainOutbox(
   return { sent, remaining: keep.length };
 }
 
+/**
+ * Drain one kind of item, handing the whole set to `send` at once.
+ *
+ * Two things `drainOutbox` gets wrong for telemetry:
+ *
+ *  1. It calls `send` once per item. A walk-past can yield two hundred
+ *     readings, and two hundred separate HTTPS round trips on a rural
+ *     connection will mostly time out. They have to go in one request.
+ *  2. It penalises every item on every pass. A handler that only deals with
+ *     telemetry has to return false for a community post it was never asked to
+ *     send — which increments that post's attempt counter, and after eight
+ *     courier runs the queue drops the farmer's own writing. Filtering by kind
+ *     first means untouched items keep their counter intact.
+ *
+ * `send` returns true only if the whole batch was accepted. Partial success is
+ * not representable, so a failed batch is retried whole — the relay makes writes
+ * idempotent precisely so that is safe.
+ */
+export async function drainOutboxKind(
+  kind: OutboxItem['kind'],
+  send: (payloads: unknown[]) => Promise<boolean>,
+  maxAttempts = 12
+): Promise<{ sent: number; remaining: number; dropped: number }> {
+  const items = await readOutbox();
+  const mine = items.filter((i) => i.kind === kind);
+  const others = items.filter((i) => i.kind !== kind);
+
+  if (mine.length === 0) {
+    return { sent: 0, remaining: others.length, dropped: 0 };
+  }
+
+  let ok = false;
+  try {
+    ok = await send(mine.map((i) => i.payload));
+  } catch {
+    ok = false;
+  }
+
+  if (ok) {
+    await writeOutbox(others);
+    return { sent: mine.length, remaining: others.length, dropped: 0 };
+  }
+
+  // A higher attempt ceiling than the generic drain: telemetry is field data
+  // that cannot be recreated, so it is worth retrying for longer before giving
+  // up on it.
+  const keep = mine
+    .map((i) => ({ ...i, attempts: i.attempts + 1 }))
+    .filter((i) => i.attempts < maxAttempts);
+  const dropped = mine.length - keep.length;
+
+  await writeOutbox([...others, ...keep]);
+  return { sent: 0, remaining: others.length + keep.length, dropped };
+}
+
 // --- Connectivity ----------------------------------------------------------
 
 const PROBE_URL = 'https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0&current=temperature_2m';
