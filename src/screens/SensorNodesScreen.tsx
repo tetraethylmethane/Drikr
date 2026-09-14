@@ -6,7 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { telemetrySource } from '../services/telemetry';
 import { MasterStatus, fetchStatus, isKnown, setOutput } from '../services/hardware';
 import { formatAge } from '../services/offline';
+import { describeCollection, runCourier } from '../services/courier';
+import { nodePlotResolver } from '../hooks/useCourier';
+import { hasIngest } from '../config/env';
 import { calibrateNode } from '../store/slices/farmSlice';
+import { setCourierRun } from '../store/slices/telemetrySlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, StatusTone, toneColors, typography } from '../theme';
 import { SensorNode } from '../types';
@@ -27,6 +31,7 @@ export default function SensorNodesScreen() {
 
   const { plots, nodes } = useAppSelector((s) => s.farm);
   const readings = useAppSelector((s) => s.telemetry.readings);
+  const courier = useAppSelector((s) => s.telemetry.courier);
 
   const byPlot = useMemo(() => {
     return plots.map((plot) => ({
@@ -58,6 +63,20 @@ export default function SensorNodesScreen() {
     };
   }, [isHardware]);
 
+  // A manual pickup. The background loop in useCourier does the same thing once
+  // a minute; courier.ts holds a mutex so a tap during a scheduled pass is a
+  // no-op rather than a double collect.
+  const [syncBusy, setSyncBusy] = useState(false);
+  const syncNow = useCallback(async () => {
+    setSyncBusy(true);
+    try {
+      const result = await runCourier(nodePlotResolver(nodes));
+      dispatch(setCourierRun(result));
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [dispatch, nodes]);
+
   const [relayBusy, setRelayBusy] = useState<string | null>(null);
   const toggleRelay = useCallback(async (nodeLabel: string, output: 1 | 2, on: boolean) => {
     setRelayBusy(nodeLabel + '-' + output);
@@ -76,6 +95,17 @@ export default function SensorNodesScreen() {
     ).length;
     return { total: nodes.length, online, lowBattery, needsCalibration };
   }, [nodes]);
+
+  // Prefer the concrete "what just happened" line; fall back to the standing
+  // queue depth, which is what the farmer actually needs to know between passes.
+  const courierLine = useMemo(() => {
+    const described = describeCollection(courier?.collect ?? null);
+    if (described) return described;
+    const queued = courier?.queued ?? 0;
+    if (queued > 0) return t('nodes.courierQueued', { count: queued });
+    if (courier) return t('nodes.courierClear');
+    return null;
+  }, [courier, t]);
 
   return (
     <Screen scroll>
@@ -125,6 +155,42 @@ export default function SensorNodesScreen() {
               ) : null}
             </View>
           </View>
+        </Card>
+      ) : null}
+
+      {isHardware ? (
+        <Card>
+          <View style={s.masterRow}>
+            <Ionicons name="walk" size={18} color={colors.brand} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.masterTitle}>{t('nodes.courierTitle')}</Text>
+              <Text style={s.sourceNote}>{t('nodes.courierBody')}</Text>
+            </View>
+          </View>
+
+          <Divider style={{ marginVertical: spacing.md }} />
+
+          <Text style={s.courierStatus}>
+            {courierLine ?? t('nodes.courierIdle')}
+          </Text>
+          {courier ? (
+            <Text style={s.sourceNote}>
+              {t('nodes.courierLast', { age: formatAge(courier.at) })}
+            </Text>
+          ) : null}
+          {/* Collecting without a relay is a legitimate state, not a failure:
+              the data is safe on the phone. Say so rather than showing an error. */}
+          {!hasIngest() ? <Text style={s.sourceNote}>{t('nodes.courierNoRelay')}</Text> : null}
+
+          <Button
+            title={t('nodes.courierSync')}
+            icon="cloud-upload"
+            size="sm"
+            variant="secondary"
+            loading={syncBusy}
+            onPress={syncNow}
+            style={{ marginTop: spacing.md }}
+          />
         </Card>
       ) : null}
 
@@ -318,6 +384,10 @@ const s = StyleSheet.create({
   summaryRow: { flexDirection: 'row' },
   summaryValue: { ...typography.h1 },
   summaryLabel: { ...typography.tiny, color: colors.textMuted, marginTop: 2 },
+  courierStatus: {
+    ...typography.body,
+    color: colors.text,
+  },
   sourceNote: {
     ...typography.tiny,
     color: colors.textFaint,

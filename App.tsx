@@ -9,7 +9,7 @@ import i18n from './src/i18n/i18n';
 import { registerCalibration } from './src/config/calibration';
 import { configureNotifications } from './src/services/notifications';
 import { registerMasterAddress } from './src/services/hardware';
-import { drainOutbox, isOnline } from './src/services/offline';
+import { uploadQueued } from './src/services/courier';
 import { createStore } from './src/store/store';
 import { loadPersistedState } from './src/store/persist';
 import { colors } from './src/theme';
@@ -72,14 +72,19 @@ export default function App() {
   }, []);
 
   // Flush anything queued while offline, once at launch.
+  //
+  // This used to call `drainOutbox(async () => false)` with the comment that a
+  // rejecting sender keeps items queued. It does not: drainOutbox counts every
+  // refusal as a failed attempt and drops an item at eight, so the farmer's own
+  // alert feedback and community posts were being discarded after eight app
+  // launches — exactly the training signal the comment claimed to protect.
+  //
+  // Telemetry now has a real sender, and uploadQueued touches only telemetry.
+  // The farmer's other writes stay queued, untouched and un-penalised, until a
+  // backend for them exists.
   useEffect(() => {
     if (!store) return;
-    void (async () => {
-      if (!(await isOnline())) return;
-      // No telemetry backend is configured in this build, so queued writes are kept
-      // rather than dropped: `false` leaves each item in the outbox for a later sync.
-      await drainOutbox(async () => false);
-    })();
+    void uploadQueued();
   }, [store]);
 
   if (!store) {

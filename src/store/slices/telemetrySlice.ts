@@ -1,4 +1,5 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { CourierRun } from '../../services/courier';
 import { HealthMap, PlotSnapshot, SensorReading, WeatherForecast } from '../../types';
 
 interface TelemetryState {
@@ -16,6 +17,12 @@ interface TelemetryState {
   refreshing: boolean;
   /** Non-fatal message, e.g. serving cached data. */
   notice: string | null;
+  /**
+   * Last phone-as-courier pass. Deliberately not persisted, like everything
+   * else in this slice — a courier result rehydrated next launch would claim a
+   * walk-past that happened yesterday.
+   */
+  courier: CourierRun | null;
 }
 
 const HISTORY_CAP = 48;
@@ -30,6 +37,7 @@ const initialState: TelemetryState = {
   online: true,
   refreshing: false,
   notice: null,
+  courier: null,
 };
 
 const telemetrySlice = createSlice({
@@ -79,9 +87,19 @@ const telemetrySlice = createSlice({
     setNotice: (state, action: PayloadAction<string | null>) => {
       state.notice = action.payload;
     },
+    setCourierRun: (state, action: PayloadAction<CourierRun>) => {
+      state.courier = action.payload;
+    },
   },
 });
 
-export const { setRefreshing, ingest, seedHistory, setForecast, setOnline, setNotice } =
-  telemetrySlice.actions;
+export const {
+  setRefreshing,
+  ingest,
+  seedHistory,
+  setForecast,
+  setOnline,
+  setNotice,
+  setCourierRun,
+} = telemetrySlice.actions;
 export default telemetrySlice.reducer;

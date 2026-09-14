@@ -23,6 +23,7 @@ import {
 } from '../store/slices/telemetrySlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { HealthMap, Plot, PlotSnapshot, SensorReading, WeatherForecast } from '../types';
+import { useCourier } from './useCourier';
 
 /**
  * Drives the whole data pipeline for the selected plot.
@@ -200,6 +201,11 @@ export function useTelemetryEngine() {
     };
   }, [plot?.centroid.lat, plot?.centroid.lon, dispatch]);
 
+  // --- Phone-as-courier -------------------------------------------------------
+  // Mounted here because this hook is already the one guaranteed-single owner of
+  // a polling loop. The returned callback is the manual "Sync now".
+  const syncCourier = useCourier();
+
   // --- Connectivity -----------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -221,7 +227,7 @@ export function useTelemetryEngine() {
     dispatch(setRefreshing(false));
   }, [dispatch, tick, plot]);
 
-  return { plot, refresh };
+  return { plot, refresh, syncCourier };
 }
 
 /** Read-only view of the current plot's derived state, for screens. */

@@ -167,7 +167,15 @@
     "modeAp": "Access point mode",
     "outputs": "RELAY OUTPUTS",
     "output": "Output",
-    "outputsHelp": "Switches the relay on this node, for a pump or valve. The node reports its own state back on the next poll."
+    "outputsHelp": "Switches the relay on this node, for a pump or valve. The node reports its own state back on the next poll.",
+    "courierTitle": "Field data pickup",
+    "courierBody": "The master stores readings and this phone carries them to the cloud when you have signal. No SIM or subscription needed.",
+    "courierIdle": "Nothing collected yet",
+    "courierQueued": "{{count}} reading(s) waiting to upload",
+    "courierClear": "All collected readings uploaded",
+    "courierNoRelay": "No cloud relay configured. Readings are collected and kept safely on this phone.",
+    "courierSync": "Sync now",
+    "courierLast": "Last pickup {{age}}"
   },
   "drone": {
     "title": "Drone Operations",

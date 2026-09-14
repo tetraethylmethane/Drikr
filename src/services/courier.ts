@@ -1,5 +1,12 @@
 import env, { hasIngest } from '../config/env';
-import { cacheGet, cacheSet, enqueue, isOnline, outboxCount } from './offline';
+import {
+  cacheGet,
+  cacheSet,
+  drainOutboxKind,
+  enqueue,
+  isOnline,
+  outboxCount,
+} from './offline';
 import { masterBaseUrl } from './hardware';
 
 /**
@@ -52,9 +59,21 @@ export interface CollectResult {
   collected: number;
   /** Readings the Master had already dropped from its ring before we arrived. */
   missed: number;
+  /** Readings from a node label the app does not know — setup is incomplete. */
+  unmapped: number;
   latestSeq: number;
   queued: number;
 }
+
+/**
+ * Only one collect and one upload may be in flight.
+ *
+ * Both the background loop and the farmer's "Sync now" button call in here, and
+ * a second collect overlapping the first would read the same cursor and queue
+ * every reading twice.
+ */
+let collecting = false;
+let uploading = false;
 
 async function readCursor(): Promise<number> {
   const hit = await cacheGet<number>(CURSOR_KEY);
@@ -70,23 +89,37 @@ async function writeCursor(seq: number): Promise<void> {
 /**
  * Collect everything the Master holds that we have not already taken.
  *
- * `plotId` has to be supplied by the caller: the Master reports node ids (S1,
- * S2) and knows nothing about the app's plots, so it cannot label a reading with
- * one. Without this the payload reached the relay with no plotId and every
- * reading was filed under "unknown" — the whole history landing in the wrong
- * place, silently.
+ * `plotIdForNode` has to be supplied by the caller. The Master reports node
+ * labels (S1, S2) and knows nothing about the app's plots, so it cannot label a
+ * reading with one — only the app's node registry can. Resolving per reading
+ * rather than per batch also means two slaves in two different plots are filed
+ * correctly instead of both landing wherever the batch was labelled.
  *
  * Returns null when the Master is not reachable, which is the normal case — the
  * phone is only near it some of the time, and that is not an error.
  */
-export async function collectFromMaster(plotId: string): Promise<CollectResult | null> {
+export async function collectFromMaster(
+  plotIdForNode: (nodeLabel: string) => string | null
+): Promise<CollectResult | null> {
   const base = masterBaseUrl();
   if (!base) return null;
-  if (!plotId) return null;
+  if (collecting) return null;
+  collecting = true;
+  try {
+    return await collectInner(base, plotIdForNode);
+  } finally {
+    collecting = false;
+  }
+}
 
+async function collectInner(
+  base: string,
+  plotIdForNode: (nodeLabel: string) => string | null
+): Promise<CollectResult | null> {
   let cursor = await readCursor();
   let collected = 0;
   let missed = 0;
+  let unmapped = 0;
   let latestSeq = cursor;
 
   // Page until the Master has nothing newer. Bounded so a Master that has been
@@ -124,6 +157,19 @@ export async function collectFromMaster(plotId: string): Promise<CollectResult |
     // signal — that is the expected case, not a failure.
     const now = Date.now();
     for (const r of body.readings) {
+      // The cursor advances either way. A reading we cannot attribute is not
+      // recoverable by looking at it again, and holding the cursor back would
+      // stall every later reading behind it.
+      if (r.seq > cursor) cursor = r.seq;
+
+      const plotId = plotIdForNode(r.node);
+      if (!plotId) {
+        // A node the farmer has not added yet. Counted and surfaced rather than
+        // filed under a guess — see sendToRelay.
+        unmapped += 1;
+        continue;
+      }
+
       await enqueue('telemetry', {
         ...r,
         // Required by the relay, and only the app knows it.
@@ -135,7 +181,6 @@ export async function collectFromMaster(plotId: string): Promise<CollectResult |
         collectedAt: now,
       });
       collected += 1;
-      if (r.seq > cursor) cursor = r.seq;
     }
 
     await writeCursor(cursor);
@@ -143,15 +188,15 @@ export async function collectFromMaster(plotId: string): Promise<CollectResult |
   }
 
   // Advisory: lets the Master report how far behind the courier is.
-  if (collected > 0) {
+  if (collected > 0 || unmapped > 0) {
     try {
-      await fetch(`${masterBaseUrl()}/api/history/ack?seq=${cursor}`, { method: 'POST' });
+      await fetch(`${base}/api/history/ack?seq=${cursor}`, { method: 'POST' });
     } catch {
       // Acknowledgement is not load-bearing; the cursor lives on the phone.
     }
   }
 
-  return { collected, missed, latestSeq, queued: await outboxCount() };
+  return { collected, missed, unmapped, latestSeq, queued: await outboxCount() };
 }
 
 /**
@@ -234,20 +279,54 @@ export async function sendToRelay(payloads: unknown[]): Promise<boolean> {
  */
 export async function uploadQueued(
   send: (payloads: unknown[]) => Promise<boolean> = sendToRelay
-): Promise<{ sent: number; remaining: number; dropped: number } | null> {
+): Promise<UploadResult | null> {
   if (!hasIngest()) return null;
-  if (!(await isOnline())) return null;
+  if (uploading) return null;
+  uploading = true;
+  try {
+    if (!(await isOnline())) return null;
+    return await drainOutboxKind('telemetry', send);
+  } finally {
+    uploading = false;
+  }
+}
 
-  const { drainOutboxKind } = await import('./offline');
-  return drainOutboxKind('telemetry', send);
+export interface UploadResult {
+  sent: number;
+  remaining: number;
+  dropped: number;
+}
+
+export interface CourierRun {
+  at: number;
+  collect: CollectResult | null;
+  upload: UploadResult | null;
+  queued: number;
+}
+
+/**
+ * One full courier pass: take what the Master has, then push what we hold.
+ *
+ * Both halves are independent and both are allowed to do nothing. Walking past
+ * the Master with no signal collects but cannot upload; sitting at home with
+ * signal uploads but has nothing to collect. Neither case is an error, which is
+ * why each half returns null rather than throwing.
+ */
+export async function runCourier(
+  plotIdForNode: (nodeLabel: string) => string | null
+): Promise<CourierRun> {
+  const collect = await collectFromMaster(plotIdForNode);
+  const upload = await uploadQueued();
+  return { at: Date.now(), collect, upload, queued: await outboxCount() };
 }
 
 /** Human-readable summary for the Sensor Nodes screen. */
 export function describeCollection(result: CollectResult | null): string | null {
   if (!result) return null;
-  if (result.collected === 0 && result.missed === 0) return null;
+  if (result.collected === 0 && result.missed === 0 && result.unmapped === 0) return null;
   const parts = [`${result.collected} collected`];
   if (result.missed > 0) parts.push(`${result.missed} lost before pickup`);
+  if (result.unmapped > 0) parts.push(`${result.unmapped} from an unknown node`);
   if (result.queued > 0) parts.push(`${result.queued} waiting to upload`);
   return parts.join(' · ');
 }
