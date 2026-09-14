@@ -140,6 +140,54 @@ export function RiskDomainRow({
 
 // --- Drone mission ----------------------------------------------------------
 
+/** Grid preview of a mission's target cells, in flight order. */
+function MissionTargets({ mission, plot }: { mission: DroneMission; plot: Plot }) {
+  const { rows, cols } = plot.grid;
+  const targeted = new Set(mission.targetCells.map((c) => `${c.row}:${c.col}`));
+  // The first waypoint is called out separately: on an inspection the cells are
+  // ordered worst-first before being sequenced for flight, so "where it starts"
+  // is the cell that triggered the mission.
+  const first = mission.targetCells[0];
+  const tone = mission.type === 'spray' ? colors.warn : colors.info;
+
+  return (
+    <View style={s.targetsWrap}>
+      <View style={s.targetsGrid}>
+        {Array.from({ length: rows }).map((_, row) => (
+          <View key={row} style={s.targetsRow}>
+            {Array.from({ length: cols }).map((__, col) => {
+              const on = targeted.has(`${row}:${col}`);
+              const isFirst = first && first.row === row && first.col === col;
+              return (
+                <View
+                  key={col}
+                  style={[
+                    s.targetsCell,
+                    on && { backgroundColor: tone },
+                    isFirst && { backgroundColor: colors.danger },
+                  ]}
+                />
+              );
+            })}
+          </View>
+        ))}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={s.targetsTitle}>
+          {mission.targetCells.length} {mission.type === 'spray' ? 'cells targeted' : 'waypoints'}
+        </Text>
+        <Text style={s.targetsNote}>
+          {mission.type === 'spray'
+            ? `Skipping the other ${rows * cols - mission.targetCells.length} of ${rows * cols} cells`
+            : first
+              ? `Starting at grid ${first.row + 1},${first.col + 1} — the worst reading`
+              : ''}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export function DroneMissionCard({
   mission,
   plot,
@@ -198,6 +246,15 @@ export function DroneMissionCard({
       </View>
 
       {mission.payload ? <Text style={s.missionPayload}>{mission.payload.chemical}</Text> : null}
+
+      {/* Where it actually flies.
+          A mission is something the farmer authorises, so the target cells have
+          to be visible before they press Confirm — "trust me, I picked the right
+          8%" is not an authorisation. This also makes a mis-targeted mission
+          obvious at a glance instead of only after the flight. */}
+      {plot && mission.targetCells.length > 0 && mission.status !== 'completed' ? (
+        <MissionTargets mission={mission} plot={plot} />
+      ) : null}
 
       {mission.blockedReason ? (
         <View style={s.blockedRow}>
@@ -404,6 +461,33 @@ const s = StyleSheet.create({
   },
   domainFill: { height: '100%', borderRadius: 3 },
   domainTitle: { ...typography.tiny, color: colors.textMuted, marginTop: 4 },
+  targetsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  targetsGrid: {
+    gap: 1,
+  },
+  targetsRow: {
+    flexDirection: 'row',
+    gap: 1,
+  },
+  targetsCell: {
+    width: 7,
+    height: 7,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+  },
+  targetsTitle: {
+    ...typography.small,
+    color: colors.text,
+  },
+  targetsNote: {
+    ...typography.tiny,
+    color: colors.textMuted,
+  },
   missionTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   missionIcon: {
     width: 36,

@@ -95,6 +95,8 @@ export default function RiskDetailScreen() {
       map,
       reading: snapshot.reading,
       forecast,
+      // So an inspection targets the cells bad for *this* domain.
+      domain,
     });
     dispatch(proposeMissionAction(mission));
     navigation.navigate('Drone');

@@ -6,11 +6,12 @@ import {
   HealthMap,
   MissionType,
   Plot,
+  RiskDomain,
   SensorReading,
   WeatherForecast,
 } from '../types';
 import { droneFlightCheck } from './decisionEngine';
-import { affectedFraction, riskCells } from './healthMap';
+import { affectedFraction, inspectCells, orderForFlight, riskCells } from './healthMap';
 import { nextCalmWindow } from './weather';
 
 /**
@@ -45,6 +46,14 @@ export interface ProposeInput {
   reading: SensorReading;
   forecast?: WeatherForecast | null;
   alert?: Alert;
+  /**
+   * What the mission is investigating. Only used by `inspect`, which targets the
+   * cells bad *for that domain* rather than the cells bad on the blended index.
+   * Falls back to the alert's domain, then to crop health as the broadest
+   * catch-all — an inspection with no stated reason should still look at the
+   * cells where the crop is worst.
+   */
+  domain?: RiskDomain;
   chemical?: string;
   now?: number;
 }
@@ -57,8 +66,33 @@ export interface ProposeInput {
 export function proposeMission(input: ProposeInput): DroneMission {
   const { plot, type, map, reading, forecast, alert, chemical, now = Date.now() } = input;
 
-  const targetCells: GridRef[] = type === 'spray' ? riskCells(map ?? null, 55) : [];
-  const fraction = type === 'spray' ? Math.max(0.08, affectedFraction(map ?? null, 55)) : 1;
+  // Inspect used to get an empty target list and the whole plot's area, which
+  // meant the one mission type whose entire job is "go look at the suspicious
+  // spot" flew out with no waypoints. Irrigation, nutrient and climate alerts
+  // all propose an inspection, so that was most of them.
+  const domain: RiskDomain = input.domain ?? alert?.domain ?? 'cropHealth';
+
+  let targetCells: GridRef[];
+  let fraction: number;
+  if (type === 'spray') {
+    targetCells = orderForFlight(riskCells(map ?? null, 55));
+    fraction = Math.max(0.08, affectedFraction(map ?? null, 55));
+  } else {
+    targetCells = inspectCells(plot, map ?? null, domain);
+    // Nothing crossed the suspicion floor, but the farmer asked for an
+    // inspection. Send the drone to the single worst cell rather than launching
+    // it with no waypoints — there is always a worst cell, and that is the one
+    // worth a photograph.
+    if (targetCells.length === 0 && map?.worst) {
+      targetCells = [map.worst.gridRef];
+    }
+    // Area covered, for the flight-time and cost estimates. A cell is one grid
+    // cell's worth of the plot, so the fraction follows from the cell count
+    // rather than from a separate threshold pass.
+    const cellCount = map?.cells.length ?? 0;
+    fraction = cellCount > 0 ? targetCells.length / cellCount : 1;
+  }
+
   const areaAcres = Math.round(plot.areaAcres * fraction * 100) / 100;
 
   const flight = droneFlightCheck(reading, forecast);

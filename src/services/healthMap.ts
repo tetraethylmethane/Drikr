@@ -1,5 +1,22 @@
-import { cellHealthIndex } from './decisionEngine';
-import { GridRef, HealthCell, HealthMap, Plot, SensorNode, SensorReading } from '../types';
+import {
+  assessClimate,
+  assessCropHealth,
+  assessIrrigation,
+  assessNutrient,
+  assessPest,
+  cellHealthIndex,
+  EngineContext,
+} from './decisionEngine';
+import {
+  GridRef,
+  HealthCell,
+  HealthMap,
+  Plot,
+  RiskAssessment,
+  RiskDomain,
+  SensorNode,
+  SensorReading,
+} from '../types';
 
 /**
  * Builds the Field Health Map from a handful of node readings.
@@ -121,6 +138,112 @@ export function cellAt(map: HealthMap | null, ref: GridRef): HealthCell | null {
 export function riskCells(map: HealthMap | null, maxHealthIndex = 55): GridRef[] {
   if (!map) return [];
   return map.cells.filter((c) => c.healthIndex <= maxHealthIndex).map((c) => c.gridRef);
+}
+
+/**
+ * Per-domain cell targeting, for inspection missions.
+ *
+ * `riskCells` thresholds on the *blended* health index, which is the right set to
+ * spray: a cell bad enough on the combined score is worth treating. It is the
+ * wrong set to inspect. A nitrogen alert asks "where is the field short of
+ * nitrogen", and a cell can be 30% down on nitrogen while its blended index
+ * stays above the spray cutoff because moisture and pest pressure are fine
+ * there. Targeting on the blend would send the drone to look at the wrong cells,
+ * or — as it did before this existed — at no cells at all.
+ *
+ * Every `HealthCell` carries its own interpolated reading, so any domain can be
+ * re-scored per cell with the same assessor the headline uses. Nothing is
+ * re-derived or approximated here.
+ */
+const DOMAIN_ASSESSOR: Record<RiskDomain, (ctx: EngineContext) => RiskAssessment> = {
+  irrigation: assessIrrigation,
+  nutrient: assessNutrient,
+  pest: assessPest,
+  cropHealth: assessCropHealth,
+  climate: assessClimate,
+};
+
+/**
+ * Inspect on suspicion, spray on confidence.
+ *
+ * Looser than the spray threshold by design: the cost of flying over a cell that
+ * turns out to be fine is a few seconds of battery, while the cost of not
+ * looking is a missed problem. Spraying has the opposite asymmetry, which is why
+ * the two thresholds are separate numbers rather than one shared constant.
+ */
+export const INSPECT_SCORE_FLOOR = 30;
+
+/**
+ * Cap on inspection waypoints.
+ *
+ * A drone inspection is hover-photograph-move, a few seconds per point. Sixty
+ * waypoints is a survey, not an investigation, and it would flatten the battery
+ * before reaching the cells that actually triggered the alert. Worst-first
+ * ordering means the cap drops the least suspicious cells.
+ */
+const MAX_INSPECT_CELLS = 12;
+
+export function domainCellScore(plot: Plot, cell: HealthCell, domain: RiskDomain): number {
+  // nodesOnline/Total are 1/1 because this is a single interpolated point, not a
+  // plot aggregate. Confidence is not read here — only the score — so the thin
+  // evidence that implies does not leak into an alert.
+  const assess = DOMAIN_ASSESSOR[domain];
+  return assess({ plot, reading: cell.reading, nodesOnline: 1, nodesTotal: 1 }).score;
+}
+
+/**
+ * The cells an inspection should visit for a given domain, worst first.
+ *
+ * Climate is deliberately handled differently. Weather is plot-wide — our
+ * sensors cannot resolve frost or wind exposure cell by cell, so every cell
+ * scores identically and thresholding on it would return all 64 or none.
+ * Instead a climate inspection visits the cells where the crop is already
+ * weakest, because that is where a cold night or a heat spike does visible
+ * damage first. Guessing at spatial climate variation we cannot measure would be
+ * worse than admitting we cannot.
+ */
+export function inspectCells(
+  plot: Plot,
+  map: HealthMap | null,
+  domain: RiskDomain,
+  minScore = INSPECT_SCORE_FLOOR
+): GridRef[] {
+  if (!map || map.cells.length === 0) return [];
+
+  const ranked =
+    domain === 'climate'
+      ? map.cells
+          .filter((c) => c.healthIndex <= 100 - minScore)
+          .sort((a, b) => a.healthIndex - b.healthIndex)
+      : map.cells
+          .map((c) => ({ cell: c, score: domainCellScore(plot, c, domain) }))
+          .filter((x) => x.score >= minScore)
+          .sort((a, b) => b.score - a.score)
+          .map((x) => x.cell);
+
+  return orderForFlight(ranked.slice(0, MAX_INSPECT_CELLS).map((c) => c.gridRef));
+}
+
+/**
+ * Order waypoints the way a drone actually flies them: serpentine by row, so it
+ * sweeps left-to-right then right-to-left instead of returning to the start of
+ * every row. Row-major order — which is the order cells come out of the map —
+ * adds a full-width transit per row for nothing.
+ */
+export function orderForFlight(cells: GridRef[]): GridRef[] {
+  const byRow = new Map<number, GridRef[]>();
+  for (const c of cells) {
+    const list = byRow.get(c.row) ?? [];
+    list.push(c);
+    byRow.set(c.row, list);
+  }
+  const out: GridRef[] = [];
+  const rows = [...byRow.keys()].sort((a, b) => a - b);
+  rows.forEach((row, i) => {
+    const list = byRow.get(row)!.sort((a, b) => a.col - b.col);
+    out.push(...(i % 2 === 0 ? list : list.reverse()));
+  });
+  return out;
 }
 
 /** Share of the plot flagged at risk, used to size the spray payload. */
