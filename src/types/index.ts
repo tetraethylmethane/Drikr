@@ -274,10 +274,17 @@ export interface CommunityPost {
   replies: Array<{ id: string; author: string; text: string; at: number }>;
 }
 
-/** Queued write that must survive low connectivity and sync when online. */
+/**
+ * Queued write that must survive low connectivity and sync when online.
+ *
+ * `telemetry` is readings collected from the sensor Master by a phone acting as
+ * courier. It shares the queue with the farmer's own writes deliberately: both
+ * need the same store-and-forward guarantees, and the transport underneath can
+ * change without either caring.
+ */
 export interface OutboxItem {
   id: string;
-  kind: 'alertStatus' | 'alertFeedback' | 'mission' | 'communityPost';
+  kind: 'alertStatus' | 'alertFeedback' | 'mission' | 'communityPost' | 'telemetry';
   payload: unknown;
   createdAt: number;
   attempts: number;

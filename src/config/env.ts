@@ -40,6 +40,16 @@ export const env = {
   /** Optional Drikr telemetry/ML backend. Empty means run on simulated telemetry. */
   apiBaseUrl: read('API_BASE_URL', process.env.EXPO_PUBLIC_API_BASE_URL),
   /**
+   * Telemetry relay (functions/index.js). Where collected readings are uploaded.
+   *
+   * Empty means the courier still collects and queues, but never drains — which
+   * is a legitimate state, not a broken one: the readings are safe on the phone
+   * and will upload whenever a relay is configured. The alternative, dropping
+   * them, would lose field data for no reason.
+   */
+  ingestUrl: read('INGEST_URL', process.env.EXPO_PUBLIC_INGEST_URL),
+  ingestKey: read('INGEST_KEY', process.env.EXPO_PUBLIC_INGEST_KEY),
+  /**
    * Firebase web config. Previously hardcoded in src/config/firebase.ts, which
    * meant the keys were committed and the project could not be swapped without a
    * code change.
@@ -61,6 +71,9 @@ export const env = {
 /** True when a Firebase project is configured. Without it, auth uses the local PIN only. */
 export const hasFirebase = (): boolean =>
   Boolean(env.firebase.apiKey && env.firebase.projectId);
+
+/** True when collected readings have somewhere to upload to. */
+export const hasIngest = (): boolean => Boolean(env.ingestUrl && env.ingestKey);
 
 /** True when a cloud LLM is configured for Kisan Mitra; otherwise the offline engine answers. */
 export const hasCloudAi = (): boolean => Boolean(env.geminiApiKey || env.openaiApiKey);

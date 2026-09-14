@@ -1,0 +1,21 @@
+{
+  "name": "drikr-functions",
+  "description": "Telemetry relay between the Drikr sensor Master and Firestore",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.29.0"
+  }
+}

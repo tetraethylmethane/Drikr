@@ -1,49 +1,124 @@
-# Firestore Security Rules for PIN-Based Authentication
+# Firestore Security Rules
 
-This document contains Firestore security rules to ensure that users can only read and write their own user records.
+Rules to apply in the Firebase console. **Test mode expires roughly 30 days after the
+database is created**, after which every read and write starts failing — so these need
+publishing before that happens, not after.
 
-## How to Apply These Rules
+## How to apply
 
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Select your project: **Drikr-8321a**
-3. Navigate to **Firestore Database** > **Rules**
-4. Replace the existing rules with the rules below
-5. Click **Publish**
+1. [Firebase Console](https://console.firebase.google.com) → your project
+   (currently `drikr-369ce`)
+2. **Firestore Database → Rules**
+3. Replace everything with the block below
+4. **Publish**
 
-## Security Rules
+---
+
+## The rules
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users collection - users can only read/write their own document
-    // Document ID is the phone number (e.g., +91XXXXXXXXXX)
+    // ---------------------------------------------------------------- helpers
+    // A PIN is 4-6 digits and is only ever stored as a SHA-256 hash, which is
+    // always 64 hex characters. Checking the shape here stops a malformed or
+    // plaintext value being written by anything other than our client.
+    function isPinHash(value) {
+      return value is string && value.size() == 64;
+    }
+
+    function isE164(id) {
+      return id.matches('^\\\\+[1-9][0-9]{7,14}$');
+    }
+
+    // ---------------------------------------------------------------- users
+    // Document ID is the E.164 phone number, e.g. +919876543210.
     match /users/{phoneNumber} {
-      // Allow read: Anyone can read (to check if user exists)
-      // In production, you might want to restrict this
+
+      // Read is open, and that is a deliberate, bounded decision.
+      //
+      // Sign-in has to answer "does an account exist for this number?" before
+      // anyone is authenticated - that is the whole first step of the flow, and
+      // Firebase Auth is not in use because phone auth requires billing.
+      //
+      // What this exposes is a PIN *hash*, not a PIN. A 4-6 digit PIN hashed
+      // with plain SHA-256 is brute-forceable offline by anyone who reads it,
+      // so this is genuinely a weakness, not a non-issue. It is acceptable only
+      // because the PIN gates app access and nothing else: no payment, no
+      // irreversible action, no personal data beyond a phone number.
+      //
+      // To close it properly, move the existence check behind a Cloud Function
+      // that returns a boolean and never the document. Do that before this app
+      // holds anything worth stealing.
       allow read: if true;
 
-      // Allow create: Anyone can create a new user account
-      // Ensure the phone number matches the document ID and required fields are present
-      allow create: if request.resource.data.phoneNumber == phoneNumber
-                    && request.resource.data.keys().hasAll(['phoneNumber', 'pinHash', 'sessionToken'])
-                    && request.resource.data.pinHash is string
-                    && request.resource.data.phoneNumber is string
-                    && request.resource.data.sessionToken is string;
-
-      // Allow update: Only if authenticated (for security)
-      // In this implementation, we need to allow updates for session tokens
-      // Prevent updating pinHash (should only be set during creation)
-      allow update: if request.auth != null
+      // Create: the document must be self-consistent and carry a real hash.
+      allow create: if isE164(phoneNumber)
                     && request.resource.data.phoneNumber == phoneNumber
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['pinHash']);
+                    && request.resource.data.keys().hasAll(['phoneNumber', 'pinHash', 'sessionToken'])
+                    && isPinHash(request.resource.data.pinHash);
 
-      // Allow delete: Only if authenticated (users can delete their own account)
-      allow delete: if request.auth != null;
+      // Update: the PIN hash and the phone number are immutable.
+      //
+      // Without the pinHash guard, anyone able to write could overwrite the hash
+      // with one of their own and take the account - which is exactly the attack
+      // the open read above would otherwise set up.
+      //
+      // A deliberate PIN change must therefore go through a Cloud Function that
+      // verifies the old PIN first. It is not possible from the client, and that
+      // is the intent.
+      allow update: if request.resource.data.phoneNumber == resource.data.phoneNumber
+                    && request.resource.data.pinHash == resource.data.pinHash;
+
+      // Accounts are never deleted from the client.
+      allow delete: if false;
     }
 
-    // Deny all other access by default
+    // ---------------------------------------------------------------- telemetry
+    // Written by the sensor Master (or the Cloud Function relay) as a dedicated
+    // device account; read by farmers. The app must never be able to write a
+    // reading - fabricated telemetry would feed straight into the risk engine
+    // and be indistinguishable from a measurement.
+    match /telemetry/{plotId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      match /readings/{readingId} {
+        allow read: if request.auth != null;
+
+        // Only the device account may write, and only well-formed readings.
+        allow create: if request.auth != null
+                      && request.auth.token.get('role', '') == 'device'
+                      && request.resource.data.keys().hasAll(['at', 'plotId'])
+                      && request.resource.data.at is int;
+
+        // Telemetry is append-only. A reading that could be edited after the
+        // fact is not evidence of anything.
+        allow update, delete: if false;
+      }
+
+      match /latest {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null
+                     && request.auth.token.get('role', '') == 'device';
+      }
+    }
+
+    // ---------------------------------------------------------------- feedback
+    // Farmer confirmations on alerts, and scouting observations. This is the
+    // training signal for the model-improvement loop, so it is append-only:
+    // ground truth that can be rewritten later is worthless.
+    match /feedback/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------- default
+    // Anything not named above is denied. New collections must be added here
+    // deliberately rather than inheriting access by accident.
     match /{document=**} {
       allow read, write: if false;
     }
@@ -51,89 +126,46 @@ service cloud.firestore {
 }
 ```
 
-## Alternative: More Restrictive Rules (Recommended)
+---
 
-If you want stricter rules that ensure users can only access documents where they are the owner:
+## Document shapes
+
+### `users/{+E164}`
 
 ```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    // Helper function to check if user owns the document
-    function isOwner(phoneNumber) {
-      return request.auth != null
-             && exists(/databases/$(database)/documents/users/$(phoneNumber));
-    }
-
-    // Users collection
-    match /users/{phoneNumber} {
-      // Allow read: User is authenticated
-      allow read: if request.auth != null;
-
-      // Allow create: Authenticated user creating their own record
-      allow create: if request.auth != null
-                    && request.resource.data.phoneNumber == phoneNumber
-                    && request.resource.data.uid == request.auth.uid
-                    && request.resource.data.keys().hasAll(['phoneNumber', 'pinHash', 'uid'])
-                    && request.resource.data.pinHash is string;
-
-      // Allow update: User is updating their own record, can't change PIN hash
-      allow update: if request.auth != null
-                    && resource.data.uid == request.auth.uid
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['pinHash', 'phoneNumber']);
-
-      // Allow delete: User can delete their own account
-      allow delete: if request.auth != null
-                    && resource.data.uid == request.auth.uid;
-    }
-
-    // Add rules for other collections as needed
-    // Example: Allow read/write for other collections only if authenticated
-    match /crops/{document=**} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /market/{document=**} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Deny all other access
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
+{
+  phoneNumber: "+919876543210",
+  pinHash:     "<64 hex chars>",   // SHA-256, hashed on the device
+  sessionToken: "<opaque>",
+  language:    "en" | "hi" | "ta",
+  createdAt:   "2026-09-14T00:00:00.000Z",
+  updatedAt:   "2026-09-14T00:00:00.000Z",
+  lastLoginAt: "2026-09-14T00:00:00.000Z"
 }
 ```
 
-## Testing Security Rules
+The plaintext PIN never leaves the device. It is hashed in
+[src/config/firebase.ts](src/config/firebase.ts) before any write.
 
-You can test these rules using the Firebase Console:
+### `telemetry/{plotId}/latest`
 
-1. Go to **Firestore Database** > **Rules**
-2. Click **Rules Playground**
-3. Test scenarios:
-   - **Read own user document**: Should succeed
-   - **Write to own user document**: Should succeed
-   - **Read another user's document**: Should fail
-   - **Write to another user's document**: Should fail
+One document per plot, overwritten each upload — cheap to read with `onSnapshot`.
+Historical rows go to `telemetry/{plotId}/readings/{timestamp}`.
 
-## Important Notes
+⚠️ **Aggregate before writing.** A 1 Hz sensor poll would be ~172,800 writes/day
+against a 20,000/day free tier. Averaging on the Master and writing once every 2
+minutes is 720/day, and the averaging removes sensor noise, so the data is better as
+well as cheaper.
 
-1. **PIN Hash Protection**: The rules prevent updating the `pinHash` field after initial creation. This ensures PINs cannot be changed without proper security measures.
+---
 
-2. **Phone Number as Document ID**: Since we use the phone number as the document ID, the security relies on users knowing the phone number. Consider adding additional security layers if sensitive data is stored.
+## Known gaps
 
-3. **Anonymous Authentication**: Our implementation uses Firebase Anonymous Authentication for session management. Users must be authenticated (even anonymously) to access their documents.
+| Gap | Fix |
+|---|---|
+| `users` read is open, exposing PIN hashes | Move the existence check behind a Cloud Function returning a boolean |
+| SHA-256 on a 4-6 digit PIN is brute-forceable | Use a slow KDF, or move verification server-side entirely |
+| Telemetry rules assume a `role: device` custom claim | Set it on the device account with the Admin SDK; until then telemetry writes are denied, which is the safe default |
 
-4. **UID Matching**: The stricter rules ensure that only the user who created the account (matching UID) can modify it.
-
-## Additional Security Recommendations
-
-1. **Rate Limiting**: Consider implementing rate limiting for PIN attempts to prevent brute force attacks.
-
-2. **Audit Logging**: Enable Firestore audit logs to track access patterns.
-
-3. **PIN Reset**: If you implement PIN reset functionality, ensure it goes through proper verification (e.g., OTP verification before reset).
-
-4. **Encryption**: While PINs are hashed, consider encrypting other sensitive user data before storing in Firestore.
+None of these block the demo. All of them matter before the app holds anything worth
+stealing.
