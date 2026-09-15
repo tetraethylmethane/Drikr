@@ -226,7 +226,22 @@
     "submitHelp": "Your observations are the ground truth the model learns from. They are what make the alerts more accurate over time.",
     "treatment": "Treatment",
     "suggestedInput": "Suggested input",
-    "safetyNote": "Follow the label dose and pre-harvest interval. Spray at dusk to protect pollinators."
+    "safetyNote": "Follow the label dose and pre-harvest interval. Spray at dusk to protect pollinators.",
+    "examining": "Examining the photo...",
+    "modelUnreachable": "Could not reach the image model. The photo is saved and your note still counts.",
+    "photoDiagnosis": "Photo diagnosis",
+    "noVerdict": "Could not identify anything",
+    "unconfirmed": "Below your confidence threshold - treat as unconfirmed",
+    "observed": "What the model says it can see",
+    "modelAdvice": "Suggested response",
+    "modelCaveat": "Read from one photo by a cloud model. It is advisory - confirm on the plant before you spray.",
+    "photoWorse": "This leaf looks worse than the field average. Check whether it is spreading.",
+    "sensorsWorse": "Sensors show more risk than this leaf does. Photograph another part of the field.",
+    "severity_none": "No symptom",
+    "severity_early": "Early",
+    "severity_moderate": "Moderate",
+    "severity_severe": "Severe",
+    "severity_unknown": "Unclear"
   },
   "mitra": {
     "title": "Kisan Mitra",

@@ -5,9 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import { cropProfile, INPUT_SUGGESTIONS } from '../config/agronomy';
-import { hasTelemetryBackend } from '../config/env';
+import { hasVisionAi } from '../config/env';
 import { proposeMission } from '../services/drone';
 import { enqueue } from '../services/offline';
+import { diagnosePhoto, PhotoDiagnosis } from '../services/vision';
 import { usePlotState } from '../hooks/useTelemetry';
 import { useLanguage } from '../hooks/useLanguage';
 import { useVoice } from '../hooks/useVoice';
@@ -15,6 +16,7 @@ import { proposeMissionAction } from '../store/slices/droneSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, spacing as sp, typography } from '../theme';
 import { RiskDomain } from '../types';
+import { StatusTone } from '../theme';
 import { AppHeader, Badge, Button, Card, ConfidenceBar, Screen, SectionTitle } from '../components/ui';
 import { DriverList, RecommendationList, riskTone } from '../components/domain';
 
@@ -29,12 +31,17 @@ import { DriverList, RecommendationList, riskTone } from '../components/domain';
  *  - Reports the sensor-based risk for the domain, which is real: it comes from the
  *    decision engine using live leaf wetness, humidity, VOC and the electrochemical
  *    biosensor current.
- *  - Lets the farmer photograph the symptom and queues it for the image model. Image
- *    classification runs server-side (the PlantVillage/FieldPlant-trained CNN in the
- *    deck's references); with no backend configured the photo is stored and labelled
- *    as pending rather than given an invented verdict.
- *  - Records what the farmer actually found, which is the ground truth the model
- *    improvement loop needs.
+ *  - Classifies the photograph through a real multimodal model ([vision.ts]), which
+ *    is allowed to say it cannot tell. A verdict below the farmer's confidence
+ *    threshold is labelled unconfirmed, and the photo verdict never overrides the
+ *    sensors — a disagreement between one leaf and the whole plot is shown, not
+ *    resolved.
+ *  - Records what the farmer actually found, paired with what the model said. That
+ *    pairing is the only thing that can ever measure whether the model is any good.
+ *
+ * The four post-capture states are deliberately distinct: examining, a verdict, an
+ * abstention, and could-not-reach-the-model. Collapsing them is how "no result"
+ * starts reading to a farmer as "nothing wrong".
  */
 export default function ScoutScreen() {
   const navigation = useNavigation<any>();
@@ -53,6 +60,12 @@ export default function ScoutScreen() {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<PhotoDiagnosis | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  // Distinguishes "not attempted" from "attempted and got nothing back", which
+  // the farmer needs to tell apart: one means take a photo, the other means the
+  // model could not be reached.
+  const [diagnoseFailed, setDiagnoseFailed] = useState(false);
 
   const risk = useMemo(
     () => assessment?.risks.find((r) => r.domain === domain) ?? null,
@@ -67,16 +80,39 @@ export default function ScoutScreen() {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.75,
+      // 0.6 rather than 0.75: this image is uploaded over a rural connection,
+      // and leaf lesions stay legible well below the quality at which the file
+      // size starts to hurt. base64 comes straight from the picker, so no
+      // filesystem dependency is needed to read it back.
+      quality: 0.6,
+      base64: true,
     };
     const result =
       mode === 'camera'
         ? await ImagePicker.launchCameraAsync(opts)
         : await ImagePicker.launchImageLibraryAsync(opts);
-    if (!result.canceled && result.assets[0]) {
-      setImage(result.assets[0].uri);
-      setSubmitted(false);
-    }
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    setImage(asset.uri);
+    setSubmitted(false);
+    setDiagnosis(null);
+    setDiagnoseFailed(false);
+
+    if (!asset.base64 || !hasVisionAi()) return;
+
+    setDiagnosing(true);
+    const result2 = await diagnosePhoto({
+      base64: asset.base64,
+      domain,
+      plot,
+      snapshot,
+      risk,
+      language,
+    });
+    setDiagnosing(false);
+    setDiagnosis(result2);
+    setDiagnoseFailed(result2 === null);
   };
 
   const submit = async () => {
@@ -91,6 +127,9 @@ export default function ScoutScreen() {
       note: note.trim(),
       imageUri: image,
       sensorContext: snapshot?.reading,
+      // The model's verdict travels with the farmer's own words. That pairing is
+      // the only thing that can ever tell us whether the model is any good.
+      modelDiagnosis: diagnosis,
       at: Date.now(),
     });
     setSubmitting(false);
@@ -206,18 +245,109 @@ export default function ScoutScreen() {
           />
         </View>
 
-        {/* Explicit about what the image can and cannot do right now */}
-        <View style={s.modelNotice}>
-          <Ionicons
-            name={hasTelemetryBackend() ? 'cloud-upload-outline' : 'information-circle-outline'}
-            size={15}
-            color={colors.info}
-          />
-          <Text style={s.modelNoticeText}>
-            {hasTelemetryBackend() ? t('scout.modelOnline') : t('scout.modelPending')}
-          </Text>
-        </View>
+        {/* What the image model did or did not manage to say.
+            Four distinct states, kept distinct on purpose: a farmer needs to
+            know whether the model saw nothing, could not tell, could not be
+            reached, or was never configured. Collapsing those into one message
+            is how "no result" starts reading as "nothing wrong". */}
+        {diagnosing ? (
+          <View style={s.modelNotice}>
+            <ActivityIndicator size="small" color={colors.info} />
+            <Text style={s.modelNoticeText}>{t('scout.examining')}</Text>
+          </View>
+        ) : diagnoseFailed ? (
+          <View style={s.modelNotice}>
+            <Ionicons name="cloud-offline-outline" size={15} color={colors.info} />
+            <Text style={s.modelNoticeText}>{t('scout.modelUnreachable')}</Text>
+          </View>
+        ) : !hasVisionAi() ? (
+          <View style={s.modelNotice}>
+            <Ionicons name="information-circle-outline" size={15} color={colors.info} />
+            <Text style={s.modelNoticeText}>{t('scout.modelPending')}</Text>
+          </View>
+        ) : null}
       </Card>
+
+      {/* Photo diagnosis */}
+      {diagnosis ? (
+        <>
+          <SectionTitle title={t('scout.photoDiagnosis')} icon="scan" />
+          <Card tone={diagnosis.label && diagnosis.confidence >= confidenceThreshold ? 'warn' : undefined}>
+            <View style={s.riskTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.riskTitle}>
+                  {diagnosis.label ?? t('scout.noVerdict')}
+                </Text>
+                {/* Below the farmer's own threshold this is explicitly not a
+                    diagnosis — the same gate every sensor alert passes. */}
+                {diagnosis.label && diagnosis.confidence < confidenceThreshold ? (
+                  <Text style={s.unconfirmed}>{t('scout.unconfirmed')}</Text>
+                ) : null}
+                {diagnosis.declineReason ? (
+                  <Text style={s.riskDetail}>{diagnosis.declineReason}</Text>
+                ) : null}
+              </View>
+              {diagnosis.label ? (
+                <Badge label={t(`scout.severity_${diagnosis.severity}`)} tone={severityTone(diagnosis.severity)} />
+              ) : null}
+            </View>
+
+            <ConfidenceBar confidence={diagnosis.confidence} threshold={confidenceThreshold} />
+
+            {diagnosis.observed.length > 0 ? (
+              <View style={s.driversBlock}>
+                <Text style={s.observedTitle}>{t('scout.observed')}</Text>
+                {diagnosis.observed.map((o, i) => (
+                  <View key={i} style={s.observedRow}>
+                    <Ionicons name="ellipse" size={5} color={colors.textFaint} />
+                    <Text style={s.observedText}>{o}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {diagnosis.reasoning ? <Text style={s.reasoning}>{diagnosis.reasoning}</Text> : null}
+
+            {/* A disagreement between one leaf and the whole plot is information,
+                not an error, so it is shown rather than resolved. */}
+            {diagnosis.agreement === 'photoWorse' || diagnosis.agreement === 'sensorsWorse' ? (
+              <View style={s.disagreeRow}>
+                <Ionicons name="git-compare-outline" size={15} color={colors.warn} />
+                <Text style={s.disagreeText}>
+                  {diagnosis.agreement === 'photoWorse'
+                    ? t('scout.photoWorse')
+                    : t('scout.sensorsWorse')}
+                </Text>
+              </View>
+            ) : null}
+
+            {diagnosis.advice ? (
+              <View style={s.inputBox}>
+                <Text style={s.inputBoxTitle}>{t('scout.modelAdvice')}</Text>
+                <Text style={s.inputBoxText}>{diagnosis.advice}</Text>
+              </View>
+            ) : null}
+
+            <View style={s.modelNotice}>
+              <Ionicons name="cloud-outline" size={15} color={colors.info} />
+              <Text style={s.modelNoticeText}>{t('scout.modelCaveat')}</Text>
+            </View>
+
+            {diagnosis.label || diagnosis.advice ? (
+              <Button
+                title={t('alerts.readAloud')}
+                icon="volume-medium"
+                variant="secondary"
+                size="sm"
+                onPress={() =>
+                  speak(`${diagnosis.label ?? t('scout.noVerdict')}. ${diagnosis.advice}`)
+                }
+                style={{ marginTop: spacing.md }}
+              />
+            ) : null}
+          </Card>
+        </>
+      ) : null}
 
       {/* Farmer's observation */}
       <SectionTitle title={t('scout.whatYouSee')} icon="create" />
@@ -280,6 +410,21 @@ export default function ScoutScreen() {
   );
 }
 
+function severityTone(severity: PhotoDiagnosis['severity']): StatusTone {
+  switch (severity) {
+    case 'severe':
+      return 'danger';
+    case 'moderate':
+      return 'warn';
+    case 'early':
+      return 'info';
+    case 'none':
+      return 'ok';
+    default:
+      return 'neutral';
+  }
+}
+
 const s = StyleSheet.create({
   muted: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   riskTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.md },
@@ -334,6 +479,21 @@ const s = StyleSheet.create({
     borderRadius: radii.sm,
   },
   modelNoticeText: { ...typography.tiny, color: colors.info, flex: 1, lineHeight: 16 },
+  unconfirmed: { ...typography.tiny, color: colors.warn, marginTop: 3, fontWeight: '700' },
+  observedTitle: { ...typography.tiny, color: colors.textMuted, marginBottom: spacing.sm },
+  observedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },
+  observedText: { ...typography.small, color: colors.text, flex: 1, lineHeight: 18 },
+  reasoning: { ...typography.small, color: colors.textMuted, marginTop: spacing.md, lineHeight: 19 },
+  disagreeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    padding: spacing.sm + 2,
+    backgroundColor: colors.warnBg,
+    borderRadius: radii.sm,
+  },
+  disagreeText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
   noteInput: {
     minHeight: 84,
     backgroundColor: colors.surfaceAlt,

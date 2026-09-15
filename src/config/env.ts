@@ -78,6 +78,13 @@ export const hasIngest = (): boolean => Boolean(env.ingestUrl && env.ingestKey);
 /** True when a cloud LLM is configured for Kisan Mitra; otherwise the offline engine answers. */
 export const hasCloudAi = (): boolean => Boolean(env.geminiApiKey || env.openaiApiKey);
 
+/**
+ * Photo diagnosis needs a multimodal model, which is Gemini here. An OpenAI key
+ * alone satisfies hasCloudAi() for the chat assistant but cannot classify an
+ * image through this path, so the scouting screen asks this instead.
+ */
+export const hasVisionAi = (): boolean => Boolean(env.geminiApiKey);
+
 /** True when a real telemetry backend is configured; otherwise the simulator drives the UI. */
 export const hasTelemetryBackend = (): boolean => Boolean(env.apiBaseUrl);
 
