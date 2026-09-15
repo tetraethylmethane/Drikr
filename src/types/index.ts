@@ -44,6 +44,29 @@ export interface GeoPoint {
 
 export type CropStage = 'sowing' | 'vegetative' | 'flowering' | 'fruiting' | 'maturity';
 
+/**
+ * One ground-truth point tying the normalised field drawing to the real world.
+ *
+ * The farmer taps a corner on the drawing, then stands at that corner while the
+ * phone takes a GPS fix. Two of these georeference the whole plot — see
+ * [geo.ts](src/services/geo.ts) for why two and not four.
+ */
+export interface GeoAnchor {
+  /** Where they tapped, in the plot's normalised 0..1 space. */
+  x: number;
+  y: number;
+  /** Where the phone said they were standing. */
+  lat: number;
+  lon: number;
+  /** GPS accuracy at the moment of the fix, in metres, when the OS reported it. */
+  accuracyM?: number;
+  at: number;
+}
+
+export interface PlotGeoref {
+  anchors: [GeoAnchor, GeoAnchor];
+}
+
 export interface Plot {
   id: string;
   /** Display name, e.g. "Plot A3". */
@@ -55,6 +78,13 @@ export interface Plot {
   /** Field boundary in normalised 0..1 space for the health map polygon. */
   boundary: Array<{ x: number; y: number }>;
   centroid: GeoPoint;
+  /**
+   * Real-world anchoring, set by the farmer in Field Location. Absent until they
+   * do it, which is why every geo function returns null rather than guessing:
+   * `centroid` alone cannot give a grid cell a coordinate, because it says
+   * nothing about which way the field is turned or how big it is.
+   */
+  georef?: PlotGeoref;
   /** Health-map resolution. */
   grid: { rows: number; cols: number };
   soilType: string;

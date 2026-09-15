@@ -36,6 +36,13 @@ export default function FieldsScreen() {
     return out;
   }, [alerts]);
 
+  // The plot the Field Location card refers to, matching how every other screen
+  // resolves the active plot.
+  const selected = useMemo(
+    () => plots.find((p) => p.id === selectedPlotId) ?? plots[0] ?? null,
+    [plots, selectedPlotId]
+  );
+
   const thumbSize = Math.min((Dimensions.get('window').width - spacing.lg * 4) * 0.34, 110);
 
   const open = (plot: Plot) => {
@@ -175,6 +182,29 @@ export default function FieldsScreen() {
             </View>
           </Card>
         ) : null}
+
+        {/* Georeferencing. Shown with a nudge while it is missing, because
+            nothing can fly until it is done and the farmer has no other way to
+            discover that. */}
+        <Card
+          onPress={() => navigation.navigate('FieldLocation')}
+          tone={selected && !selected.georef ? 'info' : undefined}
+        >
+          <View style={s.linkRow}>
+            <Ionicons
+              name="location"
+              size={20}
+              color={selected && !selected.georef ? colors.info : colors.brandLight}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={s.linkTitle}>{t('fieldLoc.title')}</Text>
+              <Text style={s.linkSub}>
+                {selected?.georef ? t('fieldLoc.saved') : t('fieldLoc.lead')}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </View>
+        </Card>
 
         <Card onPress={() => navigation.navigate('SensorNodes')}>
           <View style={s.linkRow}>

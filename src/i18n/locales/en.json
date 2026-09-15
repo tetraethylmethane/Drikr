@@ -202,7 +202,12 @@
     "missions": "Missions",
     "acresTreated": "Acres treated",
     "sprayUsed": "Spray used",
-    "noPlot": "Add a field to plan drone missions."
+    "noPlot": "Add a field to plan drone missions.",
+    "flightPlan": "Flight plan",
+    "waypointCount": "{{count}} waypoint(s), in the order the drone should fly them:",
+    "setFieldLocation": "Set field location",
+    "linkReady": "Connected over {{name}}.",
+    "linkManual": "Enter these into your drone's own app. Drikr picks where to fly; the drone app flies it."
   },
   "scout": {
     "diseaseTitle": "Disease Scouting",
@@ -518,5 +523,23 @@
     "reset": "Reset",
     "signOut": "Sign out",
     "signOutConfirm": "You will need your PIN to sign back in."
+  },
+  "fieldLoc": {
+    "title": "Field location",
+    "lead": "Tie your field drawing to the real world so the drone knows where each part of it is.",
+    "why": "Pick two corners that are far apart — diagonally opposite is best, and at least {{metres}} m. Two close corners cannot tell us which way the field is turned.",
+    "pickCorner": "Pick a corner",
+    "tapHint": "Tap a corner of your field above, then walk to it.",
+    "standAt": "Stand at corner {{corner}}, out in the open, then take the fix.",
+    "takeFix": "I am standing here — take the fix",
+    "fixesTaken": "Fixes taken",
+    "corner": "Corner",
+    "needTwo": "Take a fix at one more corner.",
+    "separation": "{{m}} m apart",
+    "implied": "works out to {{acres}} acre",
+    "save": "Save field location",
+    "saved": "Saved. Drone waypoints can now be worked out for this field.",
+    "permissionDenied": "Location permission is needed to take a GPS fix.",
+    "fixFailed": "Could not get a GPS fix. Move into the open and try again."
   }
 }

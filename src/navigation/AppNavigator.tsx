@@ -14,6 +14,7 @@ import CommunityScreen from '../screens/CommunityScreen';
 import DroneScreen from '../screens/DroneScreen';
 import FieldHealthMapScreen from '../screens/FieldHealthMapScreen';
 import FieldSetupScreen from '../screens/FieldSetupScreen';
+import FieldLocationScreen from '../screens/FieldLocationScreen';
 import FieldsScreen from '../screens/FieldsScreen';
 import HomeScreen from '../screens/HomeScreen';
 import KisanMitraScreen from '../screens/KisanMitraScreen';
@@ -133,6 +134,7 @@ export default function AppNavigator() {
 
       <Stack.Screen name="FieldHealthMap" component={FieldHealthMapScreen} />
       <Stack.Screen name="FieldSetup" component={FieldSetupScreen} />
+      <Stack.Screen name="FieldLocation" component={FieldLocationScreen} />
       <Stack.Screen name="SensorNodes" component={SensorNodesScreen} />
       <Stack.Screen name="SensorSetup" component={SensorSetupScreen} />
       <Stack.Screen name="SensorDetail" component={SensorDetailScreen} />

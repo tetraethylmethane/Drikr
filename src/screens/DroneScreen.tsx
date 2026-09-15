@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { DRONE_LIMITS } from '../config/agronomy';
 import { droneFlightCheck } from '../services/decisionEngine';
 import { missionEconomics, nextStatus, proposeMission } from '../services/drone';
+import { activeLink, buildFlightPlan, describePlan } from '../services/droneLink';
 import { scheduleMissionReminder } from '../services/notifications';
 import { enqueue } from '../services/offline';
 import { nextCalmWindow } from '../services/weather';
@@ -96,6 +97,16 @@ export default function DroneScreen() {
 
   const econ = plot && pending[0] ? missionEconomics(pending[0], plot) : null;
 
+  // The plan for the mission the farmer is currently deciding on. Built here
+  // rather than in proposeMission because a mission is a set of grid cells and
+  // stays valid if the field is georeferenced later — baking coordinates into it
+  // would freeze a georeference that may not exist yet.
+  const link = activeLink();
+  const plan = useMemo(
+    () => (plot && pending[0] ? buildFlightPlan(pending[0], plot) : null),
+    [plot, pending]
+  );
+
   return (
     <Screen scroll>
       <AppHeader
@@ -179,6 +190,67 @@ export default function DroneScreen() {
           disabled={!plot || !snapshot}
         />
       </View>
+
+      {/* Flight plan — the coordinates, and whether they can be trusted */}
+      {plan ? (
+        <>
+          <SectionTitle title={t('drone.flightPlan')} icon="navigate" />
+          <Card tone={plan.problems.length > 0 ? 'warn' : undefined}>
+            {plan.problems.length > 0 ? (
+              <>
+                {plan.problems.map((p, i) => (
+                  <View key={i} style={s.planProblemRow}>
+                    <Ionicons name="alert-circle" size={15} color={colors.warn} />
+                    <Text style={s.planProblemText}>{p}</Text>
+                  </View>
+                ))}
+                {/* The usual problem is a field that has never been georeferenced,
+                    which is fixable in one screen — so link straight to it. */}
+                {!plot?.georef ? (
+                  <Button
+                    title={t('drone.setFieldLocation')}
+                    icon="location"
+                    size="sm"
+                    onPress={() => navigation.navigate('FieldLocation')}
+                    style={{ marginTop: spacing.md }}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text style={s.planLead}>
+                  {t('drone.waypointCount', { count: plan.waypoints.length })}
+                </Text>
+                {/* Printed in full because the only way to fly this drone is for
+                    the farmer to type them into its own app. */}
+                {describePlan(plan).map((line, i) => (
+                  <Text key={i} style={s.planLine}>
+                    {line}
+                  </Text>
+                ))}
+                {plan.warnings.map((w, i) => (
+                  <View key={`w${i}`} style={s.planProblemRow}>
+                    <Ionicons name="warning" size={15} color={colors.warn} />
+                    <Text style={s.planProblemText}>{w}</Text>
+                  </View>
+                ))}
+                <View style={s.linkRow}>
+                  <Ionicons
+                    name={link.canCommand ? 'radio' : 'create-outline'}
+                    size={15}
+                    color={colors.info}
+                  />
+                  <Text style={s.linkText}>
+                    {link.canCommand
+                      ? t('drone.linkReady', { name: link.label })
+                      : t('drone.linkManual')}
+                  </Text>
+                </View>
+              </>
+            )}
+          </Card>
+        </>
+      ) : null}
 
       {/* Pending */}
       <SectionTitle title={t('drone.queue')} icon="list" />
@@ -299,6 +371,30 @@ function TotalStat({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
+  planLead: { ...typography.small, color: colors.text, fontWeight: '600', marginBottom: spacing.sm },
+  planLine: {
+    ...typography.tiny,
+    color: colors.textMuted,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 18,
+  },
+  planProblemRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+    marginTop: spacing.sm,
+  },
+  planProblemText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
+  linkRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+    marginTop: spacing.md,
+    padding: spacing.sm + 2,
+    backgroundColor: colors.infoBg,
+    borderRadius: radii.sm,
+  },
+  linkText: { ...typography.tiny, color: colors.info, flex: 1, lineHeight: 16 },
   muted: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   flightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   flightTitle: { ...typography.bodyStrong },
