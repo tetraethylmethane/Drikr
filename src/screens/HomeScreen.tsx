@@ -78,6 +78,8 @@ export default function HomeScreen() {
     [plot, scouting, forecast]
   );
 
+  const farmerChecks = useAppSelector((s) => s.drone.farmerChecks);
+
   const flySurvey = useCallback(() => {
     if (!plot) return;
     const mission = proposeMission({
@@ -89,11 +91,12 @@ export default function HomeScreen() {
       // flying weather.
       reading: snapshot?.reading ?? null,
       forecast,
+      farmerCheck: plot ? (farmerChecks?.[plot.id] ?? null) : null,
     });
     dispatch(proposeMissionAction(mission));
     dispatch(markSurveyed({ plotId: plot.id, at: Date.now() }));
     navigation.navigate('Drone');
-  }, [plot, map, snapshot, forecast, dispatch, navigation]);
+  }, [plot, map, snapshot, forecast, farmerChecks, dispatch, navigation]);
 
   const handleDroneFromRecommendation = useCallback(
     (_rec: Recommendation) => {

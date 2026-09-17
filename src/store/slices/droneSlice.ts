@@ -3,18 +3,38 @@ import { DroneMission } from '../../types';
 
 interface DroneState {
   missions: DroneMission[];
+  /**
+   * The farmer's last statement about flight conditions, per plot.
+   *
+   * Persisted with the rest of this slice, which is only safe because every
+   * reader checks `FARMER_CHECK_TTL_MS` against `at`. A rehydrated clearance
+   * from yesterday must never count — see droneFlightCheck.
+   */
+  farmerChecks: Record<string, { at: number; safe: boolean }>;
 }
 
 const CAP = 60;
 
 const initialState: DroneState = {
   missions: [],
+  farmerChecks: {},
 };
 
 const droneSlice = createSlice({
   name: 'drone',
   initialState,
   reducers: {
+    /** The farmer reports what the weather is actually doing where they stand. */
+    recordFarmerFlightCheck: (
+      state,
+      action: PayloadAction<{ plotId: string; safe: boolean; at: number }>
+    ) => {
+      if (!state.farmerChecks) state.farmerChecks = {};
+      state.farmerChecks[action.payload.plotId] = {
+        at: action.payload.at,
+        safe: action.payload.safe,
+      };
+    },
     proposeMissionAction: (state, action: PayloadAction<DroneMission>) => {
       // One open proposal per plot+type, so repeated taps cannot stack missions.
       const duplicate = state.missions.find(
@@ -57,6 +77,7 @@ const droneSlice = createSlice({
 
 export const {
   proposeMissionAction,
+  recordFarmerFlightCheck,
   confirmMission,
   rescheduleMission,
   abortMission,

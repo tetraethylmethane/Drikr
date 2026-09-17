@@ -50,6 +50,13 @@ export interface ProposeInput {
    * being handed fabricated zeros.
    */
   reading?: SensorReading | null;
+  /**
+   * The farmer's own report on conditions, for a field with neither sensor nor
+   * forecast. Without threading this through, a farmer could confirm it is safe
+   * to fly and still get a mission proposed as `blocked` — the confirmation
+   * would change the Drone screen's banner and nothing else.
+   */
+  farmerCheck?: { at: number; safe: boolean } | null;
   forecast?: WeatherForecast | null;
   alert?: Alert;
   /**
@@ -70,7 +77,8 @@ export interface ProposeInput {
  * Spraying 30% of a field instead of all of it is where the chemical saving comes from.
  */
 export function proposeMission(input: ProposeInput): DroneMission {
-  const { plot, type, map, reading, forecast, alert, chemical, now = Date.now() } = input;
+  const { plot, type, map, reading, forecast, alert, chemical, farmerCheck, now = Date.now() } =
+    input;
 
   // Inspect used to get an empty target list and the whole plot's area, which
   // meant the one mission type whose entire job is "go look at the suspicious
@@ -107,7 +115,7 @@ export function proposeMission(input: ProposeInput): DroneMission {
 
   const areaAcres = Math.round(plot.areaAcres * fraction * 100) / 100;
 
-  const flight = droneFlightCheck(reading, forecast);
+  const flight = droneFlightCheck(reading, forecast, farmerCheck);
   const calm = nextCalmWindow(forecast ?? null, DRONE_LIMITS.maxWindKmh, DRONE_LIMITS.maxRainMm);
 
   // If conditions are bad now, schedule into the next permitted window instead of blocking.

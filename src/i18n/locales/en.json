@@ -207,7 +207,14 @@
     "waypointCount": "{{count}} waypoint(s), in the order the drone should fly them:",
     "setFieldLocation": "Set field location",
     "linkReady": "Connected over {{name}}.",
-    "linkManual": "Enter these into your drone's own app. Drikr picks where to fly; the drone app flies it."
+    "linkManual": "Enter these into your drone's own app. Drikr picks where to fly; the drone app flies it.",
+    "askTitle": "We cannot see the weather here",
+    "askBody": "This field has no sensor and no forecast reached us. You are the only one who can see the sky — is it calm and dry enough to fly right now?",
+    "askSafe": "Safe to fly",
+    "askUnsafe": "Too windy or wet",
+    "bySelfReport": "Based on what you reported. Valid for {{mins}} more minutes — weather moves.",
+    "byForecast": "Based on the forecast, not a sensor in this field.",
+    "bySensor": "Based on live readings from this field."
   },
   "scout": {
     "diseaseTitle": "Disease Scouting",

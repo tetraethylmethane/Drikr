@@ -763,6 +763,24 @@ export function cellHealthIndex(plot: Plot, reading: SensorReading): { healthInd
 }
 
 /**
+ * How long a farmer's "it is safe to fly" statement stands for.
+ *
+ * Twenty minutes. Long enough to walk to the drone and launch, short enough
+ * that a squall arriving after they tapped it does not sit there as a valid
+ * clearance. A stale attestation is the same failure as a fabricated zero.
+ */
+export const FARMER_CHECK_TTL_MS = 20 * 60_000;
+
+export interface FlightCheck {
+  ok: boolean;
+  reason?: string;
+  /** True when the app has nothing to judge on and should ask the farmer. */
+  needsFarmerCheck?: boolean;
+  /** Where the verdict came from, so the UI can attribute it. */
+  source?: 'sensor' | 'forecast' | 'farmer';
+}
+
+/**
  * Whether weather currently permits autonomous drone flight.
  *
  * `reading` is nullable because a scouting field has no sensors on it — there is
@@ -775,26 +793,51 @@ export function cellHealthIndex(plot: Plot, reading: SensorReading): { healthInd
  */
 export function droneFlightCheck(
   reading: SensorReading | null | undefined,
-  forecast?: WeatherForecast | null
-): { ok: boolean; reason?: string } {
+  forecast?: WeatherForecast | null,
+  /**
+   * The farmer's own statement that conditions are safe, with the time they
+   * said it. A person standing in the field is a perfectly good anemometer for
+   * "can I fly this" — better than no data at all — but the statement has to be
+   * fresh, because weather moves and a confirmation from this morning says
+   * nothing about now. See FARMER_CHECK_TTL_MS.
+   */
+  farmerCheck?: { at: number; safe: boolean } | null
+): FlightCheck {
   if (!reading) {
     const hour = new Date().getHours();
     if (hour < DRONE_LIMITS.minVisibilityHour || hour > DRONE_LIMITS.maxVisibilityHour) {
+      // Daylight is the one limit a farmer cannot overrule: it is a clock, not
+      // a judgement, and we know it exactly without any sensor.
       return { ok: false, reason: 'Outside permitted daylight flight window' };
     }
     if (!forecast) {
-      return { ok: false, reason: 'No wind or rain data for this field, and no forecast either' };
+      // Nothing measured and nothing forecast. Rather than a dead end, ask the
+      // person who is standing there.
+      if (farmerCheck && Date.now() - farmerCheck.at < FARMER_CHECK_TTL_MS) {
+        return farmerCheck.safe
+          ? { ok: true, source: 'farmer' }
+          : { ok: false, reason: 'You reported conditions as unsafe', source: 'farmer' };
+      }
+      return {
+        ok: false,
+        reason: 'No sensor on this field and no forecast available',
+        needsFarmerCheck: true,
+      };
     }
     const soon = forecast.hourly.filter((h) => h.at > Date.now() && h.at < Date.now() + 3 * HOUR);
     const gust = soon.find((h) => h.wind > DRONE_LIMITS.maxWindKmh);
     if (gust) {
-      return { ok: false, reason: `Forecast wind ${Math.round(gust.wind)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit` };
+      return {
+        ok: false,
+        reason: `Forecast wind ${Math.round(gust.wind)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit`,
+        source: 'forecast',
+      };
     }
     const wet = soon.find((h) => h.precip > DRONE_LIMITS.maxRainMm);
     if (wet) {
-      return { ok: false, reason: 'Rain forecast within 3 hours' };
+      return { ok: false, reason: 'Rain forecast within 3 hours', source: 'forecast' };
     }
-    return { ok: true };
+    return { ok: true, source: 'forecast' };
   }
 
   if (reading.windSpeed > DRONE_LIMITS.maxWindKmh) {

@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { DRONE_LIMITS } from '../config/agronomy';
-import { droneFlightCheck } from '../services/decisionEngine';
+import { droneFlightCheck, FARMER_CHECK_TTL_MS } from '../services/decisionEngine';
 import { missionEconomics, nextStatus, proposeMission } from '../services/drone';
 import { activeLink, buildFlightPlan, describePlan } from '../services/droneLink';
 import { scheduleMissionReminder } from '../services/notifications';
@@ -15,6 +15,7 @@ import {
   abortMission,
   confirmMission,
   proposeMissionAction,
+  recordFarmerFlightCheck,
   rescheduleMission,
   syncMission,
 } from '../store/slices/droneSlice';
@@ -59,8 +60,8 @@ export default function DroneScreen() {
     // Passing null when there is no snapshot is deliberate: droneFlightCheck
     // then judges from the forecast, which is the only thing a scouting field
     // has. Reporting a flat "no data" would have made the Drone screen useless
-    // for every field without sensors.
-    () => droneFlightCheck(snapshot?.reading ?? null, forecast),
+    // for every field without sensors. With neither, it asks the farmer.
+    () => droneFlightCheck(snapshot?.reading ?? null, forecast, farmerCheck),
     [snapshot, forecast, t]
   );
 
@@ -98,6 +99,23 @@ export default function DroneScreen() {
     const litres = done.reduce((s, m) => s + (m.payload?.litres ?? 0), 0);
     return { count: done.length, acres: Math.round(acres * 100) / 100, litres: Math.round(litres) };
   }, [missions]);
+
+  // The farmer's own report, when the app has nothing to judge on. Read fresh
+  // every render so the 20-minute expiry actually takes effect rather than
+  // being frozen into a memo.
+  const farmerChecks = useAppSelector((s) => s.drone.farmerChecks);
+  // Freshness is judged inside droneFlightCheck, so a `source: 'farmer'`
+  // verdict already implies the report is still valid. Re-checking here would
+  // only create a window where the label disagrees with the verdict.
+  const farmerCheck = plot ? (farmerChecks?.[plot.id] ?? null) : null;
+
+  const reportConditions = useCallback(
+    (safe: boolean) => {
+      if (!plot) return;
+      dispatch(recordFarmerFlightCheck({ plotId: plot.id, safe, at: Date.now() }));
+    },
+    [plot, dispatch]
+  );
 
   const econ = plot && pending[0] ? missionEconomics(pending[0], plot) : null;
 
@@ -161,6 +179,52 @@ export default function DroneScreen() {
               }
             />
           </View>
+        ) : null}
+
+        {/* Nothing measured, nothing forecast — so ask the person standing in the
+            field. A farmer is a perfectly good anemometer for "can I fly this",
+            and it beats refusing outright. But it is an attestation, not a
+            measurement: it expires in 20 minutes and is always attributed. */}
+        {flight.needsFarmerCheck ? (
+          <View style={s.askBlock}>
+            <Text style={s.askTitle}>{t('drone.askTitle')}</Text>
+            <Text style={s.askBody}>{t('drone.askBody')}</Text>
+            <View style={s.askRow}>
+              <Button
+                title={t('drone.askSafe')}
+                icon="checkmark"
+                size="sm"
+                onPress={() => reportConditions(true)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title={t('drone.askUnsafe')}
+                icon="close"
+                size="sm"
+                variant="secondary"
+                onPress={() => reportConditions(false)}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {/* Where the verdict came from, because "clear to fly" based on a
+            three-hour forecast is a weaker claim than one based on an
+            anemometer in the field, and the farmer should know which. */}
+        {flight.source ? (
+          <Text style={s.sourceNote}>
+            {flight.source === 'farmer'
+              ? t('drone.bySelfReport', {
+                  mins: Math.max(
+                    1,
+                    Math.round((FARMER_CHECK_TTL_MS - (Date.now() - (farmerCheck?.at ?? 0))) / 60000)
+                  ),
+                })
+              : flight.source === 'forecast'
+                ? t('drone.byForecast')
+                : t('drone.bySensor')}
+          </Text>
         ) : null}
 
         {!flight.ok && calmWindow ? (
@@ -375,6 +439,16 @@ function TotalStat({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
+  askBlock: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.warnBg,
+    borderRadius: radii.md,
+  },
+  askTitle: { ...typography.bodyStrong, color: colors.warn },
+  askBody: { ...typography.tiny, color: colors.warn, marginTop: 4, lineHeight: 16 },
+  askRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  sourceNote: { ...typography.tiny, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 16 },
   planLead: { ...typography.small, color: colors.text, fontWeight: '600', marginBottom: spacing.sm },
   planLine: {
     ...typography.tiny,
