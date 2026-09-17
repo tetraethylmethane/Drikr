@@ -216,7 +216,17 @@
     "askUnsafe": "Too windy or wet",
     "bySelfReport": "Based on what you reported. Valid for {{mins}} more minutes — weather moves.",
     "byForecast": "Based on the forecast, not a sensor in this field.",
-    "bySensor": "Based on live readings from this field."
+    "bySensor": "Based on live readings from this field.",
+    "upload": "Send to drone",
+    "start": "Start flight",
+    "abort": "Bring it back",
+    "uploadOk": "Waypoints sent. Wait for the drone to acknowledge all of them before starting.",
+    "uploadFailed": "Could not send the waypoints. Check the phone is on the drone WiFi.",
+    "startOk": "Mission started.",
+    "startRefused": "The drone would not start. Usually this means it has not acknowledged every waypoint yet, or it has no GPS fix.",
+    "abortOk": "Hover sent — the drone should stop and hold.",
+    "abortFailed": "Could not send the stop command. Use the drone remote.",
+    "confirmFirst": "Confirm the schedule above before the flight controls appear."
   },
   "scout": {
     "diseaseTitle": "Disease Scouting",

@@ -1,3 +1,4 @@
+import env, { hasDroneLink } from '../config/env';
 import { DroneMission, GeoPoint, Plot } from '../types';
 import { checkGeoref, formatGeo, gridRefToGeo } from './geo';
 
@@ -32,9 +33,23 @@ export interface Waypoint {
   altitudeM: number;
   /** Seconds to hold at the point — a photograph needs the aircraft still. */
   holdSeconds: number;
+  /** Cruise speed to this point, m/s. */
+  speedMs: number;
   /** Which grid cell this came from, for tracing a waypoint back to its evidence. */
   gridRef: { row: number; col: number };
 }
+
+/**
+ * Hard limits of the Lewei HY waypoint frame, from the decoded field widths.
+ *
+ * The index occupies 5 bits, altitude 12 bits in 0.1 m, speed 7 bits in 0.1 m/s
+ * and stay time 8 bits in seconds. These are not policy choices we can relax —
+ * a value past them does not fit in the packet.
+ */
+export const MAX_WAYPOINTS = 32;
+export const MAX_ALTITUDE_M = 409.5;
+export const MAX_SPEED_MS = 12.7;
+export const MAX_STAY_S = 255;
 
 export interface FlightPlan {
   missionId: string;
@@ -43,6 +58,8 @@ export interface FlightPlan {
   waypoints: Waypoint[];
   /** Home/launch point: the first anchor, which is a corner the farmer stood on. */
   home: GeoPoint | null;
+  /** Target cells that did not fit inside MAX_WAYPOINTS. */
+  droppedCells: number;
   /** Anything that makes this plan untrustworthy. Non-empty means do not fly. */
   problems: string[];
   warnings: string[];
@@ -52,6 +69,13 @@ export interface FlightPlan {
 const INSPECT_ALTITUDE_M = 12;
 /** Spray altitude — low, because drift rises steeply with height. */
 const SPRAY_ALTITUDE_M = 3;
+
+/**
+ * Cruise speeds, m/s. Slow: the camera has to resolve a lesion, and the aircraft
+ * has to settle before each hold.
+ */
+const INSPECT_SPEED_MS = 2;
+const SPRAY_SPEED_MS = 3;
 
 /**
  * Turn a mission's target cells into a flight plan.
@@ -71,6 +95,7 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
   // gets, the photograph is the measurement, and a blurred frame means flying
   // the whole thing again.
   const holdSeconds = mission.type === 'spray' ? 0 : mission.type === 'survey' ? 6 : 4;
+  const speedMs = mission.type === 'spray' ? SPRAY_SPEED_MS : INSPECT_SPEED_MS;
 
   const waypoints: Waypoint[] = [];
   if (check.ok) {
@@ -83,9 +108,34 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
         lon: p.lon,
         altitudeM,
         holdSeconds,
+        speedMs,
         gridRef: ref,
       });
     });
+  }
+
+  /**
+   * The protocol carries 32 waypoints, and a spray mission is not capped the way
+   * inspections (12) and surveys (9) are — a 10x10 grid badly affected can flag
+   * a hundred cells.
+   *
+   * Trimmed rather than refused, because a partial spray of the worst 32 cells
+   * is genuinely useful, and refusing would leave the farmer with nothing. But
+   * it is a WARNING and not silent: cells dropped here are crop that stays
+   * untreated while the app reports the mission complete, which is exactly the
+   * kind of quiet gap that loses trust.
+   */
+  let dropped = 0;
+  if (waypoints.length > MAX_WAYPOINTS) {
+    dropped = waypoints.length - MAX_WAYPOINTS;
+    waypoints.length = MAX_WAYPOINTS;
+    warnings.push(
+      `Only ${MAX_WAYPOINTS} waypoints fit in one flight, so ${dropped} more cell(s) are not included. Fly a second mission to cover them.`
+    );
+  }
+
+  if (altitudeM > MAX_ALTITUDE_M) {
+    problems.push(`Altitude ${altitudeM} m is past the ${MAX_ALTITUDE_M} m the aircraft accepts.`);
   }
 
   if (check.ok && waypoints.length === 0) {
@@ -98,6 +148,7 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
     plotId: plot.id,
     plotName: plot.name,
     waypoints,
+    droppedCells: dropped,
     home: a ? { lat: a.lat, lon: a.lon } : null,
     problems,
     warnings,
@@ -169,6 +220,102 @@ export function manualLink(): DroneLink {
   };
 }
 
+/**
+ * The turbodrone bridge: a real link to the DR-DG600C.
+ *
+ * Speaks to the HTTP API in front of the reverse-engineered Lewei HY protocol.
+ * The bridge runs on a laptop joined to the drone's own WiFi access point and
+ * owns the 200 ms retry-until-acknowledged upload handshake and the pointFly
+ * start flag, so this side stays a plain REST client.
+ *
+ * Note what is still true here: no control loop. The app hands over a waypoint
+ * list and says go. The flight controller flies it.
+ */
+export function lwProLink(baseUrl: string): DroneLink {
+  const base = baseUrl.replace(/\/$/, '');
+
+  async function call(path: string, init?: RequestInit): Promise<Response | null> {
+    const controller = new AbortController();
+    // Short: the bridge is on the same LAN, so a slow answer means it is gone
+    // rather than busy, and a farmer waiting on a drone should not watch a
+    // spinner for 30 seconds.
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      return await fetch(`${base}${path}`, { ...init, signal: controller.signal });
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return {
+    kind: 'besta',
+    label: 'Drone WiFi bridge',
+    canCommand: true,
+
+    async status() {
+      const res = await call('/mission');
+      if (!res || !res.ok) {
+        return { connected: false, detail: 'Bridge not reachable on the drone WiFi' };
+      }
+      try {
+        const body = (await res.json()) as {
+          state?: string;
+          uploaded?: number;
+          total?: number;
+          battery_pct?: number;
+        };
+        const state = body.state ?? 'unknown';
+        const detail =
+          state === 'uploading' && body.total
+            ? `Uploading waypoint ${body.uploaded ?? 0} of ${body.total}`
+            : state;
+        const progressPct =
+          body.total && body.total > 0
+            ? Math.round(((body.uploaded ?? 0) / body.total) * 100)
+            : undefined;
+        return { connected: true, detail, progressPct, batteryPct: body.battery_pct };
+      } catch {
+        return { connected: true, detail: 'Bridge answered but the reply was unreadable' };
+      }
+    },
+
+    async upload(plan: FlightPlan) {
+      // Never upload a plan we have already said is untrustworthy. The bridge
+      // would happily accept it.
+      if (plan.problems.length > 0 || plan.waypoints.length === 0) return false;
+
+      const res = await call('/mission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          waypoints: plan.waypoints.map((w) => ({
+            latitude: w.lat,
+            longitude: w.lon,
+            altitude_m: w.altitudeM,
+            speed_ms: Math.min(w.speedMs, MAX_SPEED_MS),
+            stay_s: Math.min(w.holdSeconds, MAX_STAY_S),
+          })),
+        }),
+      });
+      return Boolean(res && res.ok);
+    },
+
+    async start() {
+      const res = await call('/mission/start', { method: 'POST' });
+      // 409 is the bridge refusing because the upload has not finished
+      // acknowledging. That is a correct refusal, not a transport failure.
+      return Boolean(res && res.ok);
+    },
+
+    async abort() {
+      const res = await call('/mission/abort', { method: 'POST' });
+      return Boolean(res && res.ok);
+    },
+  };
+}
+
 /** Human-readable waypoint list, for typing into another app or reading aloud. */
 export function describePlan(plan: FlightPlan): string[] {
   return plan.waypoints.map(
@@ -182,10 +329,11 @@ export function describePlan(plan: FlightPlan): string[] {
 /**
  * Which link to use.
  *
- * Only the manual link exists today. When a real transport lands this becomes a
- * setting; until then returning a single link keeps every caller written against
- * the interface rather than against the placeholder.
+ * The bridge when one is configured, hand-entry otherwise. Hand-entry is not a
+ * failure state: a rented drone, or a phone not joined to the drone's WiFi, is
+ * the normal case for most farmers, and the app is still doing the part a drone
+ * app cannot — deciding where to look.
  */
 export function activeLink(): DroneLink {
-  return manualLink();
+  return hasDroneLink() ? lwProLink(env.droneLinkUrl) : manualLink();
 }

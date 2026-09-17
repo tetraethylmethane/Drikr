@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { DRONE_LIMITS } from '../config/agronomy';
 import { droneFlightCheck, FARMER_CHECK_TTL_MS } from '../services/decisionEngine';
 import { missionEconomics, nextStatus, proposeMission } from '../services/drone';
-import { activeLink, buildFlightPlan, describePlan } from '../services/droneLink';
+import { activeLink, buildFlightPlan, describePlan, LinkStatus } from '../services/droneLink';
 import { scheduleMissionReminder } from '../services/notifications';
 import { enqueue } from '../services/offline';
 import { nextCalmWindow } from '../services/weather';
@@ -123,11 +123,59 @@ export default function DroneScreen() {
   // rather than in proposeMission because a mission is a set of grid cells and
   // stays valid if the field is georeferenced later — baking coordinates into it
   // would freeze a georeference that may not exist yet.
-  const link = activeLink();
+  const link = useMemo(() => activeLink(), []);
+
+  // Bridge state, polled only while the screen is open and only when a link
+  // can actually command something. Hand-entry has nothing to poll.
+  const [linkStatus, setLinkStatus] = useState<LinkStatus | null>(null);
+  const [flying, setFlying] = useState<'upload' | 'start' | 'abort' | null>(null);
+  const [flyNote, setFlyNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!link.canCommand) return;
+    let cancelled = false;
+    const poll = async () => {
+      const st = await link.status();
+      if (!cancelled) setLinkStatus(st);
+    };
+    void poll();
+    const id = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [link]);
+
   const plan = useMemo(
     () => (plot && pending[0] ? buildFlightPlan(pending[0], plot) : null),
     [plot, pending]
   );
+
+  const doUpload = useCallback(async () => {
+    if (!plan) return;
+    setFlying('upload');
+    setFlyNote(null);
+    const ok = await link.upload(plan);
+    setFlying(null);
+    setFlyNote(ok ? t('drone.uploadOk') : t('drone.uploadFailed'));
+  }, [plan, link, t]);
+
+  const doStart = useCallback(async () => {
+    setFlying('start');
+    setFlyNote(null);
+    const ok = await link.start();
+    setFlying(null);
+    // A refusal here is usually the bridge saying the upload has not finished
+    // acknowledging, which is correct behaviour rather than a fault.
+    setFlyNote(ok ? t('drone.startOk') : t('drone.startRefused'));
+  }, [link, t]);
+
+  const doAbort = useCallback(async () => {
+    setFlying('abort');
+    const ok = await link.abort();
+    setFlying(null);
+    setFlyNote(ok ? t('drone.abortOk') : t('drone.abortFailed'));
+  }, [link, t]);
 
   return (
     <Screen scroll>
@@ -310,10 +358,61 @@ export default function DroneScreen() {
                   />
                   <Text style={s.linkText}>
                     {link.canCommand
-                      ? t('drone.linkReady', { name: link.label })
+                      ? `${t('drone.linkReady', { name: link.label })}${
+                          linkStatus ? ` · ${linkStatus.detail}` : ''
+                        }`
                       : t('drone.linkManual')}
                   </Text>
                 </View>
+
+                {/* Flight controls, only for a link that can actually fly and
+                    only for a mission the farmer has already confirmed. The
+                    confirm step is the authorisation; this is the button that
+                    acts on it, and the two are kept separate on purpose so a
+                    single tap can never launch an unreviewed mission. */}
+                {link.canCommand ? (
+                  pending[0] && pending[0].status === 'proposed' ? (
+                    <Text style={s.linkText}>{t('drone.confirmFirst')}</Text>
+                  ) : (
+                    <>
+                      <View style={s.flyRow}>
+                        <Button
+                          title={t('drone.upload')}
+                          icon="cloud-upload"
+                          size="sm"
+                          variant="secondary"
+                          loading={flying === 'upload'}
+                          disabled={!linkStatus?.connected || plan.problems.length > 0}
+                          onPress={() => void doUpload()}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          title={t('drone.start')}
+                          icon="play"
+                          size="sm"
+                          loading={flying === 'start'}
+                          disabled={!linkStatus?.connected || !flight.ok}
+                          onPress={() => void doStart()}
+                          style={{ flex: 1 }}
+                        />
+                      </View>
+                      <Button
+                        title={t('drone.abort')}
+                        icon="hand-left"
+                        size="sm"
+                        variant="secondary"
+                        loading={flying === 'abort'}
+                        disabled={!linkStatus?.connected}
+                        onPress={() => void doAbort()}
+                        style={{ marginTop: spacing.sm }}
+                      />
+                      {/* Never disabled on flight conditions: a drone already in
+                          the air has to be recallable regardless of what the
+                          weather check thinks. */}
+                      {flyNote ? <Text style={s.linkText}>{flyNote}</Text> : null}
+                    </>
+                  )
+                ) : null}
               </>
             )}
           </Card>
@@ -473,6 +572,7 @@ const s = StyleSheet.create({
     borderRadius: radii.sm,
   },
   linkText: { ...typography.tiny, color: colors.info, flex: 1, lineHeight: 16 },
+  flyRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   muted: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   flightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   flightTitle: { ...typography.bodyStrong },
