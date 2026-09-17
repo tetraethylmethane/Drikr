@@ -56,7 +56,11 @@ export default function DroneScreen() {
   }, [missions, dispatch]);
 
   const flight = useMemo(
-    () => (snapshot ? droneFlightCheck(snapshot.reading, forecast) : { ok: false, reason: t('drone.noData') }),
+    // Passing null when there is no snapshot is deliberate: droneFlightCheck
+    // then judges from the forecast, which is the only thing a scouting field
+    // has. Reporting a flat "no data" would have made the Drone screen useless
+    // for every field without sensors.
+    () => droneFlightCheck(snapshot?.reading ?? null, forecast),
     [snapshot, forecast, t]
   );
 

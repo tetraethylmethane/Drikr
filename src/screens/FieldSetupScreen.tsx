@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
-import { CROPS, CROP_KEYS, cropProfile, stageForDays } from '../config/agronomy';
+import { cropProfile, searchCrops, stageForDays } from '../config/agronomy';
 import indianDistricts from '../config/indianDistricts';
 import { addPlot } from '../store/slices/farmSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -22,7 +22,17 @@ const SOILS = ['Red sandy loam', 'Clay loam', 'Black cotton soil', 'Alluvial', '
  * the engine — so it is asked for as days-since-sowing, which a farmer knows, rather
  * than a calendar picker they have to work out.
  *
- * Four sensor nodes are provisioned automatically to match the deck's BOM.
+ * Two things here decide what the rest of the app is allowed to claim about this
+ * field:
+ *
+ *  - **The crop** must be one we actually have agronomy for. `cropProfile` falls
+ *    back to maize for anything unknown, so letting a farmer type a crop we do
+ *    not model would score their field against maize's moisture floors without
+ *    ever saying so. The search box only ever selects a real profile.
+ *  - **The monitoring mode** decides whether sensor nodes exist at all. A
+ *    `scouting` field gets none, which is what stops the engine producing risk
+ *    scores for a field that has nothing measuring it — the absence of nodes is
+ *    the mechanism, not a UI flag.
  */
 export default function FieldSetupScreen() {
   const navigation = useNavigation<any>();
@@ -32,6 +42,8 @@ export default function FieldSetupScreen() {
 
   const [name, setName] = useState(`Plot ${String.fromCharCode(65 + plots.length)}${plots.length + 1}`);
   const [crop, setCrop] = useState('maize');
+  const [cropQuery, setCropQuery] = useState('');
+  const [monitoring, setMonitoring] = useState<'sensors' | 'scouting'>('scouting');
   const [acres, setAcres] = useState('2');
   const [daysSinceSowing, setDaysSinceSowing] = useState('30');
   const [soilType, setSoilType] = useState(SOILS[0]);
@@ -82,6 +94,7 @@ export default function FieldSetupScreen() {
       grid: { rows: dim, cols: dim },
       soilType,
       irrigationType,
+      monitoring,
     };
 
     dispatch(addPlot(plot));
@@ -120,11 +133,31 @@ export default function FieldSetupScreen() {
       {/* Crop */}
       <SectionTitle title={t('setup.crop')} icon="leaf" />
       <Card>
+        {/* Searchable, because a pill row does not scale and because a farmer
+            types the word they use — aliases carry dhan, gehu, kapas, tamatar,
+            ganna, moongphali, makka. */}
+        <TextInput
+          style={s.input}
+          value={cropQuery}
+          onChangeText={setCropQuery}
+          placeholder={t('setup.cropSearch')}
+          placeholderTextColor={colors.textFaint}
+          autoCorrect={false}
+        />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
-          {CROP_KEYS.map((key) => (
-            <Pill key={key} label={CROPS[key].label} active={crop === key} onPress={() => setCrop(key)} />
+          {searchCrops(cropQuery).map((p) => (
+            <Pill key={p.key} label={p.label} active={crop === p.key} onPress={() => setCrop(p.key)} />
           ))}
         </ScrollView>
+        {/* An empty result is told the truth rather than left looking broken.
+            Picking a near-enough crop would silently apply the wrong thresholds,
+            so the honest answer is that we do not have it yet. */}
+        {searchCrops(cropQuery).length === 0 ? (
+          <View style={s.noCropRow}>
+            <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
+            <Text style={s.noCropText}>{t('setup.cropNotFound', { query: cropQuery.trim() })}</Text>
+          </View>
+        ) : null}
 
         <Label text={t('setup.daysSinceSowing')} icon="calendar" />
         <View style={s.inlineRow}>
@@ -138,6 +171,26 @@ export default function FieldSetupScreen() {
         </View>
         <Text style={s.help}>{t('setup.stageHelp')}</Text>
       </Card>
+
+      {/* How this field gets watched. Both modes are real; neither is a
+          downgrade, and the difference is where the drone is sent. */}
+      <SectionTitle title={t('setup.monitoring')} icon="eye" />
+      <ModeCard
+        active={monitoring === 'scouting'}
+        onPress={() => setMonitoring('scouting')}
+        icon="scan"
+        title={t('setup.modeScoutTitle')}
+        body={t('setup.modeScoutBody')}
+        points={[t('setup.modeScoutP1'), t('setup.modeScoutP2'), t('setup.modeScoutP3')]}
+      />
+      <ModeCard
+        active={monitoring === 'sensors'}
+        onPress={() => setMonitoring('sensors')}
+        icon="hardware-chip"
+        title={t('setup.modeSensorTitle')}
+        body={t('setup.modeSensorBody')}
+        points={[t('setup.modeSensorP1'), t('setup.modeSensorP2'), t('setup.modeSensorP3')]}
+      />
 
       {/* Soil & irrigation */}
       <SectionTitle title={t('setup.soilIrrigation')} icon="water" />
@@ -208,7 +261,56 @@ function Label({ text, icon }: { text: string; icon: keyof typeof Ionicons.glyph
   );
 }
 
+function ModeCard({
+  active,
+  onPress,
+  icon,
+  title,
+  body,
+  points,
+}: {
+  active: boolean;
+  onPress: () => void;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  body: string;
+  points: string[];
+}) {
+  return (
+    <Card onPress={onPress} tone={active ? 'info' : undefined}>
+      <View style={s.modeTop}>
+        <Ionicons name={icon} size={20} color={active ? colors.info : colors.textMuted} />
+        <Text style={[s.modeTitle, active ? { color: colors.text } : null]}>{title}</Text>
+        <Ionicons
+          name={active ? 'radio-button-on' : 'radio-button-off'}
+          size={19}
+          color={active ? colors.info : colors.border}
+        />
+      </View>
+      <Text style={s.modeBody}>{body}</Text>
+      {points.map((p, i) => (
+        <View key={i} style={s.modePointRow}>
+          <Ionicons name="ellipse" size={5} color={colors.textFaint} />
+          <Text style={s.modePointText}>{p}</Text>
+        </View>
+      ))}
+    </Card>
+  );
+}
+
 const s = StyleSheet.create({
+  modeTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
+  modeTitle: { ...typography.h3, color: colors.textMuted, flex: 1 },
+  modeBody: { ...typography.small, color: colors.textMuted, lineHeight: 19, marginBottom: spacing.sm },
+  modePointRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 3 },
+  modePointText: { ...typography.tiny, color: colors.textMuted, flex: 1, lineHeight: 16 },
+  noCropRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+    marginTop: spacing.sm,
+  },
+  noCropText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.md, marginBottom: 6 },
   label: { ...typography.small, color: colors.textMuted, fontWeight: '700' },
   input: {

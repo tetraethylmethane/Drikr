@@ -34,6 +34,44 @@ export interface CropProfile {
   typicalYieldQuintalPerAcre: number;
   /** Days from sowing to each stage boundary. */
   stageDays: Record<CropStage, number>;
+  /**
+   * Other names a farmer might search for, including local-language names in
+   * Latin script. Search matches these as well as the label, because a farmer
+   * looking for their crop types the word they use, not the one we picked.
+   */
+  aliases: string[];
+  /**
+   * When each common disease usually appears, and the weather that favours it.
+   *
+   * This is what makes scheduled scouting possible on a field with no sensors:
+   * crop + days since sowing + forecast is enough to say "this is the fortnight
+   * Late Blight shows up, and the weather suits it - go and look".
+   *
+   * APPROXIMATE, and labelled as such wherever it reaches the farmer. The day
+   * ranges are typical for Indian conditions and shift with variety, region and
+   * season. This is the table an agronomist should review first.
+   */
+  diseaseWindows: DiseaseWindow[];
+}
+
+export interface DiseaseWindow {
+  disease: string;
+  /** Days after sowing, inclusive. */
+  fromDay: number;
+  toDay: number;
+  /**
+   * Weather that raises the odds. Every condition present must hold for the
+   * window to count as favoured - absent fields are simply not checked.
+   */
+  favours?: {
+    minHumidity?: number;
+    minTempC?: number;
+    maxTempC?: number;
+    /** Dew or rain leaving the leaves wet is required for infection. */
+    needsLeafWetness?: boolean;
+  };
+  /** What to look for, in plain words. Drives the scouting card and photo prompt. */
+  lookFor: string;
 }
 
 const COMMON_BANDS: Partial<Record<SensorMetric, Band>> = {
@@ -69,6 +107,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Bacterial Leaf Blight', 'Blast', 'Sheath Blight'],
     typicalYieldQuintalPerAcre: 22,
     stageDays: { sowing: 0, vegetative: 25, flowering: 60, fruiting: 85, maturity: 110 },
+    aliases: ['paddy', 'dhan', 'chawal', 'nel', 'arisi', 'oryza'],
+    diseaseWindows: [
+      {
+        disease: 'Blast',
+        fromDay: 25,
+        toDay: 85,
+        favours: { minHumidity: 85, minTempC: 20, maxTempC: 28, needsLeafWetness: true },
+        lookFor: 'Spindle-shaped grey lesions with dark brown borders on the leaves',
+      },
+      {
+        disease: 'Bacterial Leaf Blight',
+        fromDay: 40,
+        toDay: 100,
+        favours: { minHumidity: 80, minTempC: 25, maxTempC: 34 },
+        lookFor: 'Yellow to straw-white streaks along the leaf edges, spreading down from the tip',
+      },
+      {
+        disease: 'Sheath Blight',
+        fromDay: 50,
+        toDay: 95,
+        favours: { minHumidity: 85, minTempC: 28, maxTempC: 32 },
+        lookFor: 'Oval water-soaked patches on the sheath, near the water line',
+      },
+    ],
   },
   wheat: {
     key: 'wheat',
@@ -91,6 +153,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Yellow Rust', 'Powdery Mildew', 'Karnal Bunt'],
     typicalYieldQuintalPerAcre: 18,
     stageDays: { sowing: 0, vegetative: 22, flowering: 65, fruiting: 90, maturity: 120 },
+    aliases: ['gehu', 'gehun', 'godhumai', 'triticum'],
+    diseaseWindows: [
+      {
+        disease: 'Yellow Rust',
+        fromDay: 45,
+        toDay: 105,
+        favours: { minHumidity: 70, minTempC: 8, maxTempC: 18 },
+        lookFor: 'Yellow-orange powdery stripes running in rows along the leaf',
+      },
+      {
+        disease: 'Powdery Mildew',
+        fromDay: 35,
+        toDay: 90,
+        favours: { minHumidity: 75, minTempC: 15, maxTempC: 22 },
+        lookFor: 'White powdery patches on the upper side of the leaf',
+      },
+      {
+        disease: 'Karnal Bunt',
+        fromDay: 75,
+        toDay: 115,
+        favours: { minHumidity: 80, minTempC: 18, maxTempC: 24 },
+        lookFor: 'Blackened grain inside the ear with a rotten-fish smell',
+      },
+    ],
   },
   maize: {
     key: 'maize',
@@ -113,6 +199,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Turcicum Leaf Blight', 'Downy Mildew', 'Common Rust'],
     typicalYieldQuintalPerAcre: 25,
     stageDays: { sowing: 0, vegetative: 20, flowering: 55, fruiting: 80, maturity: 105 },
+    aliases: ['makka', 'makai', 'corn', 'bhutta', 'cholam', 'zea'],
+    diseaseWindows: [
+      {
+        disease: 'Downy Mildew',
+        fromDay: 15,
+        toDay: 55,
+        favours: { minHumidity: 85, minTempC: 21, maxTempC: 27 },
+        lookFor: 'Pale yellow stripes with a white downy growth on the underside',
+      },
+      {
+        disease: 'Turcicum Leaf Blight',
+        fromDay: 30,
+        toDay: 85,
+        favours: { minHumidity: 80, minTempC: 18, maxTempC: 27 },
+        lookFor: 'Long cigar-shaped grey-green lesions, on the lower leaves first',
+      },
+      {
+        disease: 'Common Rust',
+        fromDay: 35,
+        toDay: 90,
+        favours: { minHumidity: 75, minTempC: 16, maxTempC: 25 },
+        lookFor: 'Small cinnamon-brown pustules on both sides of the leaf',
+      },
+    ],
   },
   cotton: {
     key: 'cotton',
@@ -135,6 +245,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Bacterial Blight', 'Alternaria Leaf Spot', 'Root Rot'],
     typicalYieldQuintalPerAcre: 10,
     stageDays: { sowing: 0, vegetative: 30, flowering: 70, fruiting: 110, maturity: 165 },
+    aliases: ['kapas', 'narma', 'paruthi', 'gossypium'],
+    diseaseWindows: [
+      {
+        disease: 'Root Rot',
+        fromDay: 20,
+        toDay: 70,
+        favours: { minTempC: 30 },
+        lookFor: 'Sudden wilting in patches; bark peels off the root easily',
+      },
+      {
+        disease: 'Bacterial Blight',
+        fromDay: 30,
+        toDay: 100,
+        favours: { minHumidity: 80, minTempC: 28, maxTempC: 36 },
+        lookFor: 'Angular dark-brown spots bounded by the leaf veins',
+      },
+      {
+        disease: 'Alternaria Leaf Spot',
+        fromDay: 45,
+        toDay: 120,
+        favours: { minHumidity: 75, minTempC: 25, maxTempC: 30 },
+        lookFor: 'Brown spots with concentric rings and grey centres',
+      },
+    ],
   },
   tomato: {
     key: 'tomato',
@@ -158,6 +292,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Early Blight', 'Late Blight', 'Leaf Curl Virus'],
     typicalYieldQuintalPerAcre: 120,
     stageDays: { sowing: 0, vegetative: 25, flowering: 45, fruiting: 70, maturity: 100 },
+    aliases: ['tamatar', 'thakkali', 'takkali', 'solanum'],
+    diseaseWindows: [
+      {
+        disease: 'Leaf Curl Virus',
+        fromDay: 15,
+        toDay: 70,
+        favours: { minTempC: 25 },
+        lookFor: 'Leaves curling upward and puckered, plant stunted - carried by whitefly',
+      },
+      {
+        disease: 'Early Blight',
+        fromDay: 30,
+        toDay: 100,
+        favours: { minHumidity: 75, minTempC: 24, maxTempC: 29 },
+        lookFor: 'Dark spots with target-like rings, on the lowest leaves first',
+      },
+      {
+        disease: 'Late Blight',
+        fromDay: 35,
+        toDay: 95,
+        favours: { minHumidity: 85, minTempC: 12, maxTempC: 20, needsLeafWetness: true },
+        lookFor: 'Water-soaked grey-green patches with white mould on the underside',
+      },
+    ],
   },
   sugarcane: {
     key: 'sugarcane',
@@ -180,6 +338,30 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Red Rot', 'Smut', 'Wilt'],
     typicalYieldQuintalPerAcre: 350,
     stageDays: { sowing: 0, vegetative: 45, flowering: 240, fruiting: 300, maturity: 360 },
+    aliases: ['ganna', 'ikshu', 'karumbu', 'cane', 'saccharum'],
+    diseaseWindows: [
+      {
+        disease: 'Smut',
+        fromDay: 60,
+        toDay: 240,
+        favours: { minTempC: 25, maxTempC: 30 },
+        lookFor: 'A long black whip growing out of the top of the cane',
+      },
+      {
+        disease: 'Red Rot',
+        fromDay: 120,
+        toDay: 300,
+        favours: { minHumidity: 80, minTempC: 25, maxTempC: 30 },
+        lookFor: 'Split a cane: red inside with white crossbands, smells of alcohol',
+      },
+      {
+        disease: 'Wilt',
+        fromDay: 150,
+        toDay: 330,
+        favours: { minTempC: 25 },
+        lookFor: 'Cane drying from the top down, hollow and light when tapped',
+      },
+    ],
   },
   groundnut: {
     key: 'groundnut',
@@ -202,15 +384,78 @@ export const CROPS: Record<string, CropProfile> = {
     commonDiseases: ['Tikka Leaf Spot', 'Rust', 'Collar Rot'],
     typicalYieldQuintalPerAcre: 9,
     stageDays: { sowing: 0, vegetative: 25, flowering: 45, fruiting: 75, maturity: 110 },
+    aliases: ['moongphali', 'mungfali', 'peanut', 'verkadalai', 'arachis', 'singdana'],
+    diseaseWindows: [
+      {
+        disease: 'Collar Rot',
+        fromDay: 5,
+        toDay: 35,
+        favours: { minTempC: 28, maxTempC: 32 },
+        lookFor: 'Seedlings collapsing at soil level, black fungal growth on the collar',
+      },
+      {
+        disease: 'Tikka Leaf Spot',
+        fromDay: 35,
+        toDay: 95,
+        favours: { minHumidity: 80, minTempC: 25, maxTempC: 30 },
+        lookFor: 'Dark brown circular spots with a yellow halo',
+      },
+      {
+        disease: 'Rust',
+        fromDay: 45,
+        toDay: 100,
+        favours: { minHumidity: 85, minTempC: 20, maxTempC: 28 },
+        lookFor: 'Orange pustules on the underside of the leaflets',
+      },
+    ],
   },
 };
 
 export const DEFAULT_CROP = 'maize';
 
+/**
+ * Is this a crop we actually have agronomy for?
+ *
+ * `cropProfile` falls back to maize for anything unknown, which keeps every
+ * caller simple but means an unlisted crop gets silently scored against maize's
+ * moisture floors and NPK targets. That was survivable while the picker offered
+ * seven fixed choices; with a search box a farmer will look for their crop, fail
+ * to find it, and pick something. Anything that puts a threshold in front of a
+ * farmer must check this first and say we do not have the crop yet instead.
+ */
+export function isKnownCrop(crop: string | undefined): boolean {
+  if (!crop) return false;
+  return Boolean(CROPS[crop.toLowerCase().trim()]);
+}
+
 export function cropProfile(crop: string | undefined): CropProfile {
   if (!crop) return CROPS[DEFAULT_CROP];
   const key = crop.toLowerCase().trim();
   return CROPS[key] ?? CROPS[DEFAULT_CROP];
+}
+
+/**
+ * Crop search, matching the label, the key or any alias.
+ *
+ * Aliases carry local names in Latin script (dhan, gehu, kapas, tamatar, ganna,
+ * moongphali, makka) because a farmer types the word they use, not ours.
+ * Returns everything on an empty query, so the picker is a browsable list too.
+ */
+export function searchCrops(query: string): CropProfile[] {
+  const q = query.trim().toLowerCase();
+  const all = CROP_KEYS.map((k) => CROPS[k]);
+  if (!q) return all;
+  const exact = all.filter(
+    (p) => p.label.toLowerCase() === q || p.key === q || p.aliases.includes(q)
+  );
+  const rest = all.filter(
+    (p) =>
+      !exact.includes(p) &&
+      (p.label.toLowerCase().includes(q) ||
+        p.key.includes(q) ||
+        p.aliases.some((a) => a.includes(q)))
+  );
+  return [...exact, ...rest];
 }
 
 export const CROP_KEYS = Object.keys(CROPS);

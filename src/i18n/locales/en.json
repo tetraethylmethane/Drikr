@@ -446,7 +446,20 @@
     "helpQ5": "Readings are a few minutes old",
     "helpA5": "Also normal. The field sensors sleep between readings so their batteries last months instead of days. The app always shows how old a reading is.",
     "resetWifi": "Box joining the wrong WiFi?",
-    "resetWifiBody": "Hold the BOOT button on the box for 3 seconds while switching it on. It will go back to setup mode so you can choose a different network."
+    "resetWifiBody": "Hold the BOOT button on the box for 3 seconds while switching it on. It will go back to setup mode so you can choose a different network.",
+    "cropSearch": "Search your crop (English or local name)",
+    "cropNotFound": "We do not have agronomy for \"{{query}}\" yet. Pick a listed crop only if it is genuinely what you grow — choosing a near match would apply the wrong thresholds to your field.",
+    "monitoring": "How should this field be watched?",
+    "modeScoutTitle": "Drone survey only",
+    "modeScoutBody": "No sensors needed. The drone flies the field on a schedule and photographs the crop, and the app tells you when each disease is due for your crop.",
+    "modeScoutP1": "Nothing to buy or install",
+    "modeScoutP2": "Survey timing follows your crop’s disease season and the weather",
+    "modeScoutP3": "No live soil or leaf readings — the photos are the check",
+    "modeSensorTitle": "Sensors in the field",
+    "modeSensorBody": "Sensor nodes watch the field continuously. When they see something wrong, the drone is sent to that exact part of the field to photograph it.",
+    "modeSensorP1": "Live soil moisture, nutrients, leaf wetness and pest pressure",
+    "modeSensorP2": "The drone goes straight to the problem area, not the whole field",
+    "modeSensorP3": "Needs the sensor hardware installed and paired"
   },
   "login": {
     "tagline": "AI-powered farming assistant for crop health, pests, nutrients, irrigation and climate risk",
@@ -558,5 +571,20 @@
     "tapOnMap": "Now find corner {{corner}} on the map below and tap it.",
     "mapAccuracyNote": "Zoom right in before tapping. The closer you zoom, the less error you add.",
     "tilesFailed": "Map pictures are not loading — check your internet, or use the walking method instead."
+  },
+  "scouting": {
+    "title": "Scheduled crop survey",
+    "day": "Day {{days}} after sowing",
+    "dueNow": "survey due now",
+    "dueIn": "next survey in {{days}} days",
+    "noCalendar": "We do not have a disease calendar for this crop yet, so surveys run on a routine two-week interval.",
+    "nothingOpen": "No disease is due for your crop at this stage. Routine survey every {{days}} days.",
+    "openLead": "This is the season for the diseases below. Survey every {{days}} days and photograph what you find.",
+    "favouredLead": "The weather over the next three days suits the diseases below. Survey every {{days}} days — this is the time they take hold.",
+    "inSeason": "in season",
+    "weatherSuits": "weather suits it",
+    "daysLeft": "about {{days}} days left in this window",
+    "caveat": "This is a crop calendar, not a measurement of your field. It says when to look, not what is there. The photos are what actually check.",
+    "flySurvey": "Plan a survey flight"
   }
 }

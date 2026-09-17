@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { droneFlightCheck } from './decisionEngine';
 import { affectedFraction, inspectCells, orderForFlight, riskCells } from './healthMap';
+import { surveyCells } from './scouting';
 import { nextCalmWindow } from './weather';
 
 /**
@@ -43,7 +44,12 @@ export interface ProposeInput {
   plot: Plot;
   type: MissionType;
   map?: HealthMap | null;
-  reading: SensorReading;
+  /**
+   * Live plot reading, when there is one. Absent on a scouting field, which has
+   * no sensors — `droneFlightCheck` then works from the forecast instead of
+   * being handed fabricated zeros.
+   */
+  reading?: SensorReading | null;
   forecast?: WeatherForecast | null;
   alert?: Alert;
   /**
@@ -74,7 +80,13 @@ export function proposeMission(input: ProposeInput): DroneMission {
 
   let targetCells: GridRef[];
   let fraction: number;
-  if (type === 'spray') {
+  if (type === 'survey') {
+    // Even coverage, not targeting: a field with no sensors offers nothing to
+    // target, so the job is a fair sample of the whole thing.
+    targetCells = surveyCells(plot);
+    const cellCount = map?.cells.length ?? plot.grid.rows * plot.grid.cols;
+    fraction = cellCount > 0 ? targetCells.length / cellCount : 1;
+  } else if (type === 'spray') {
     targetCells = orderForFlight(riskCells(map ?? null, 55));
     fraction = Math.max(0.08, affectedFraction(map ?? null, 55));
   } else {

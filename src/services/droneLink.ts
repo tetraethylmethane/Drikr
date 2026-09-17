@@ -67,7 +67,10 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
   const warnings = [...check.warnings];
 
   const altitudeM = mission.type === 'spray' ? SPRAY_ALTITUDE_M : INSPECT_ALTITUDE_M;
-  const holdSeconds = mission.type === 'spray' ? 0 : 4;
+  // A survey holds longer than an inspection: it is the only look this field
+  // gets, the photograph is the measurement, and a blurred frame means flying
+  // the whole thing again.
+  const holdSeconds = mission.type === 'spray' ? 0 : mission.type === 'survey' ? 6 : 4;
 
   const waypoints: Waypoint[] = [];
   if (check.ok) {

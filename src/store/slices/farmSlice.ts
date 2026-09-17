@@ -32,7 +32,13 @@ const farmSlice = createSlice({
         state.usingDemoFarm = false;
       }
       state.plots.push(action.payload);
-      state.nodes.push(...seedNodesForPlot(action.payload));
+      // A scouting field has no sensor nodes, and that absence is what keeps the
+      // app honest about it: with no nodes the telemetry engine produces no
+      // readings, so no screen can show a risk score for a field that has
+      // nothing measuring it. Do not "helpfully" seed nodes here.
+      if ((action.payload.monitoring ?? 'sensors') === 'sensors') {
+        state.nodes.push(...seedNodesForPlot(action.payload));
+      }
       state.selectedPlotId = action.payload.id;
     },
     updatePlot: (state, action: PayloadAction<{ id: string; changes: Partial<Plot> }>) => {
@@ -45,6 +51,11 @@ const farmSlice = createSlice({
       if (state.selectedPlotId === action.payload) {
         state.selectedPlotId = state.plots[0]?.id ?? null;
       }
+    },
+    /** Records a completed survey, which resets the scouting schedule. */
+    markSurveyed: (state, action: PayloadAction<{ plotId: string; at: number }>) => {
+      const plot = state.plots.find((p) => p.id === action.payload.plotId);
+      if (plot) plot.lastSurveyAt = action.payload.at;
     },
     setNodes: (state, action: PayloadAction<SensorNode[]>) => {
       state.nodes = action.payload;
@@ -69,6 +80,7 @@ export const {
   selectPlot,
   addPlot,
   updatePlot,
+  markSurveyed,
   removePlot,
   setNodes,
   calibrateNode,

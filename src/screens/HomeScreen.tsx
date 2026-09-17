@@ -9,6 +9,7 @@ import { telemetrySource } from '../services/telemetry';
 import { staleAfterMs } from '../services/hardware';
 import { activeAlerts, sortAlerts } from '../services/alertEngine';
 import { activeMissions, proposeMission } from '../services/drone';
+import { scoutingPlan } from '../services/scouting';
 import { describeWeather } from '../services/weather';
 import { formatAge } from '../services/offline';
 import { usePlotState, useTelemetryEngine } from '../hooks/useTelemetry';
@@ -16,6 +17,8 @@ import { useLanguage, LANGUAGES } from '../hooks/useLanguage';
 import { useVoice } from '../hooks/useVoice';
 import { selectPlot } from '../store/slices/farmSlice';
 import { confirmMission, proposeMissionAction } from '../store/slices/droneSlice';
+import { markSurveyed } from '../store/slices/farmSlice';
+import { ScoutingCard } from '../components/domain/ScoutingCard';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, healthColor, radii, spacing, typography } from '../theme';
 import { Recommendation } from '../types';
@@ -64,6 +67,33 @@ export default function HomeScreen() {
     [missions, plot?.id]
   );
   const crop = cropProfile(plot?.crop);
+
+  // A scouting field has no nodes, so the telemetry engine never produces a
+  // snapshot for it. That is deliberate — see farmSlice.addPlot — and it is why
+  // this screen must offer something else rather than sit on "connecting to
+  // sensor nodes" forever.
+  const scouting = (plot?.monitoring ?? 'sensors') === 'scouting';
+  const plan = useMemo(
+    () => (plot && scouting ? scoutingPlan(plot, forecast, plot.lastSurveyAt ?? null) : null),
+    [plot, scouting, forecast]
+  );
+
+  const flySurvey = useCallback(() => {
+    if (!plot) return;
+    const mission = proposeMission({
+      plot,
+      type: 'survey',
+      map,
+      // No reading on a scouting field, and none is invented: droneFlightCheck
+      // falls back to the forecast. Passing zeros would have read as perfect
+      // flying weather.
+      reading: snapshot?.reading ?? null,
+      forecast,
+    });
+    dispatch(proposeMissionAction(mission));
+    dispatch(markSurveyed({ plotId: plot.id, at: Date.now() }));
+    navigation.navigate('Drone');
+  }, [plot, map, snapshot, forecast, dispatch, navigation]);
 
   const handleDroneFromRecommendation = useCallback(
     (_rec: Recommendation) => {
@@ -216,6 +246,8 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
+        ) : plan ? (
+          <ScoutingCard plan={plan} onSurvey={flySurvey} />
         ) : (
           <Card>
             <Text style={s.loadingText}>{t('home.waitingForSensors')}</Text>

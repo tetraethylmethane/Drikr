@@ -174,14 +174,21 @@ function MissionTargets({ mission, plot }: { mission: DroneMission; plot: Plot }
       </View>
       <View style={{ flex: 1 }}>
         <Text style={s.targetsTitle}>
-          {mission.targetCells.length} {mission.type === 'spray' ? 'cells targeted' : 'waypoints'}
+          {mission.targetCells.length}{' '}
+          {mission.type === 'spray'
+            ? 'cells targeted'
+            : mission.type === 'survey'
+              ? 'sample points'
+              : 'waypoints'}
         </Text>
         <Text style={s.targetsNote}>
           {mission.type === 'spray'
             ? `Skipping the other ${rows * cols - mission.targetCells.length} of ${rows * cols} cells`
-            : first
-              ? `Starting at grid ${first.row + 1},${first.col + 1} — the worst reading`
-              : ''}
+            : mission.type === 'survey'
+              ? `Spread evenly across the field — ${rows * cols} cells sampled at ${mission.targetCells.length} points`
+              : first
+                ? `Starting at grid ${first.row + 1},${first.col + 1} — the worst reading`
+                : ''}
         </Text>
       </View>
     </View>
@@ -228,14 +235,19 @@ export function DroneMissionCard({
       <View style={s.missionTop}>
         <View style={[s.missionIcon, { backgroundColor: toneColors(tone).bg }]}>
           <Ionicons
-            name={mission.type === 'spray' ? 'rainy' : 'eye'}
+            name={mission.type === 'spray' ? 'rainy' : mission.type === 'survey' ? 'scan' : 'eye'}
             size={18}
             color={toneColors(tone).fg}
           />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.missionTitle}>
-            {mission.type === 'spray' ? 'Precision spraying' : 'Aerial inspection'} · {mission.plotName}
+            {mission.type === 'spray'
+              ? 'Precision spraying'
+              : mission.type === 'survey'
+                ? 'Scheduled survey'
+                : 'Aerial inspection'}{' '}
+            · {mission.plotName}
           </Text>
           <Text style={s.missionMeta}>
             {timeLabel} · {mission.areaAcres} acre

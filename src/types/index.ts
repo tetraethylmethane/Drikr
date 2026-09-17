@@ -85,6 +85,22 @@ export interface Plot {
    * nothing about which way the field is turned or how big it is.
    */
   georef?: PlotGeoref;
+  /**
+   * How this field is watched.
+   *
+   * `sensors` - nodes are installed. They see an abnormality and the drone is
+   * sent to *that* part of the field. Continuous, and targeted.
+   *
+   * `scouting` - no nodes. There is nothing measuring this field, so the app
+   * must not show sensor-derived risk for it at all. Instead the drone surveys
+   * on a schedule set by the crop's disease calendar and the forecast, and the
+   * photographs are the measurement. See [scouting.ts](src/services/scouting.ts).
+   *
+   * Absent means `sensors`, for plots created before this existed.
+   */
+  monitoring?: 'sensors' | 'scouting';
+  /** Last completed survey, for the scouting schedule. Scouting fields only. */
+  lastSurveyAt?: number;
   /** Health-map resolution. */
   grid: { rows: number; cols: number };
   soilType: string;
@@ -214,7 +230,16 @@ export interface AlertFeedback {
   at: number;
 }
 
-export type MissionType = 'inspect' | 'spray';
+/**
+ * `survey` is not `inspect` with different cells.
+ *
+ * An inspection is a response: something was detected and the drone goes to
+ * look at it. A survey is a routine sweep of a field nobody has any measurement
+ * for, timed by the crop calendar. They differ in what the farmer is being told
+ * and in what a result means - an inspection that finds nothing is reassuring
+ * about one spot, a survey that finds nothing is reassuring about the field.
+ */
+export type MissionType = 'inspect' | 'spray' | 'survey';
 export type MissionStatus =
   | 'proposed'
   | 'scheduled'

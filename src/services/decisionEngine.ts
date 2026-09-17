@@ -762,11 +762,41 @@ export function cellHealthIndex(plot: Plot, reading: SensorReading): { healthInd
   return { healthIndex: Math.round(100 - riskScore), risk: levelForScore(riskScore) };
 }
 
-/** Whether weather currently permits autonomous drone flight. */
+/**
+ * Whether weather currently permits autonomous drone flight.
+ *
+ * `reading` is nullable because a scouting field has no sensors on it — there is
+ * no on-site wind or rainfall measurement to consult. In that case the check
+ * falls back to the forecast, and says so.
+ *
+ * What it must never do is substitute zeros for the missing reading. Wind of
+ * "0 km/h" and rainfall of "0 mm" read as perfect conditions, so a field with no
+ * anemometer would be cleared to fly in a gale. Absent is not calm.
+ */
 export function droneFlightCheck(
-  reading: SensorReading,
+  reading: SensorReading | null | undefined,
   forecast?: WeatherForecast | null
 ): { ok: boolean; reason?: string } {
+  if (!reading) {
+    const hour = new Date().getHours();
+    if (hour < DRONE_LIMITS.minVisibilityHour || hour > DRONE_LIMITS.maxVisibilityHour) {
+      return { ok: false, reason: 'Outside permitted daylight flight window' };
+    }
+    if (!forecast) {
+      return { ok: false, reason: 'No wind or rain data for this field, and no forecast either' };
+    }
+    const soon = forecast.hourly.filter((h) => h.at > Date.now() && h.at < Date.now() + 3 * HOUR);
+    const gust = soon.find((h) => h.wind > DRONE_LIMITS.maxWindKmh);
+    if (gust) {
+      return { ok: false, reason: `Forecast wind ${Math.round(gust.wind)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit` };
+    }
+    const wet = soon.find((h) => h.precip > DRONE_LIMITS.maxRainMm);
+    if (wet) {
+      return { ok: false, reason: 'Rain forecast within 3 hours' };
+    }
+    return { ok: true };
+  }
+
   if (reading.windSpeed > DRONE_LIMITS.maxWindKmh) {
     return { ok: false, reason: `Wind ${Math.round(reading.windSpeed)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit` };
   }
