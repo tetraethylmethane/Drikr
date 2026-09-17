@@ -540,6 +540,23 @@
     "save": "Save field location",
     "saved": "Saved. Drone waypoints can now be worked out for this field.",
     "permissionDenied": "Location permission is needed to take a GPS fix.",
-    "fixFailed": "Could not get a GPS fix. Move into the open and try again."
+    "fixFailed": "Could not get a GPS fix. Move into the open and try again.",
+    "chooseMethod": "How do you want to do it?",
+    "walkTitle": "Walk to two corners",
+    "walkPro1": "Most accurate — your phone's GPS is good to about 3-5 m",
+    "walkPro2": "Works with no signal at all, out in the field",
+    "walkPro3": "Nothing to recognise — you are standing on the spot",
+    "walkCon1": "You have to walk to two corners of the field",
+    "mapTitle": "Tap on a satellite map",
+    "mapPro1": "No walking — do it at home",
+    "mapPro2": "Takes about a minute",
+    "mapCon1": "Needs internet for the map pictures",
+    "mapCon2": "Satellite pictures are often a few metres out of place",
+    "mapCon3": "You have to spot your own field from above",
+    "mapNeedsBuild": "Needs a newer app build. Install the latest one, then this option appears.",
+    "change": "Change",
+    "tapOnMap": "Now find corner {{corner}} on the map below and tap it.",
+    "mapAccuracyNote": "Zoom right in before tapping. The closer you zoom, the less error you add.",
+    "tilesFailed": "Map pictures are not loading — check your internet, or use the walking method instead."
   }
 }

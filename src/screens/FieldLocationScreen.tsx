@@ -10,8 +10,9 @@ import { usePlotState } from '../hooks/useTelemetry';
 import { updatePlot } from '../store/slices/farmSlice';
 import { useAppDispatch } from '../store/hooks';
 import { colors, radii, spacing, typography } from '../theme';
-import { GeoAnchor } from '../types';
+import { GeoAnchor, GeoPoint } from '../types';
 import { AppHeader, Button, Card, Divider, Screen, SectionTitle } from '../components/ui';
+import { SatelliteMap, satelliteMapAvailable } from '../components/domain/SatelliteMap';
 
 /**
  * Field Location — ties the field drawing to the real world.
@@ -20,20 +21,30 @@ import { AppHeader, Button, Card, Divider, Screen, SectionTitle } from '../compo
  * normalised 0..1 space and knows one centre coordinate, which is not enough to
  * say where grid cell 3,5 is: a centre point carries no bearing and no scale.
  *
- * The farmer picks two corners on the drawing and stands at each while the phone
- * takes a fix. Two corners rather than four because the dominant error is GPS
- * error, and that is reduced by putting the anchors *further apart*, not by
- * taking more of them — and each extra corner is another walk to the far end of
- * a field.
+ * Two corners fix that, and there are two honest ways to get them. Neither is
+ * better in general, so the farmer picks:
  *
- * The screen's real work is refusing a bad georeference. Two fixes taken too
- * close together, or the second one taken at the wrong corner, both produce a
+ *  - **Walk there.** Stand at each corner for a GPS fix. Accurate to GPS
+ *    (±3-5 m), needs no network, and is the only option that works in a field
+ *    with no signal. Costs a walk to two corners.
+ *  - **Tap a satellite map.** No walking, and it can be done at home on wifi.
+ *    But it needs internet for map tiles, satellite imagery is often offset by
+ *    more than GPS error, and it asks the farmer to recognise their own field
+ *    from above, which is genuinely hard on a smallholding.
+ *
+ * Both produce the same thing — two `GeoAnchor`s — and both go through the same
+ * `checkGeoref` guards. The methods differ only in how latitude and longitude
+ * are obtained.
+ *
+ * The screen's real work is refusing a bad georeference. Anchors taken too
+ * close together, or a second point placed at the wrong corner, both produce a
  * transform that looks perfectly reasonable on screen and is badly wrong on the
- * ground. `checkGeoref` catches the second case by comparing the implied area
- * against the acreage the farmer already entered.
+ * ground.
  */
 
 const CANVAS = 260;
+
+type Method = 'walk' | 'map';
 
 export default function FieldLocationScreen() {
   const navigation = useNavigation<any>();
@@ -41,14 +52,13 @@ export default function FieldLocationScreen() {
   const { t } = useTranslation();
   const { plot } = usePlotState();
 
-  // Draft anchors, keyed by the boundary vertex they belong to, so a farmer can
+  const [method, setMethod] = useState<Method | null>(null);
+
+  // Draft anchors keyed by the boundary vertex they belong to, so a farmer can
   // redo one fix without losing the other.
   const [draft, setDraft] = useState<Record<number, GeoAnchor>>(() => {
     const existing = plot?.georef?.anchors;
     if (!existing || !plot) return {};
-    // Match each saved anchor back to the boundary vertex it was taken at, so
-    // reopening the screen shows those corners already ticked and lets the
-    // farmer redo just one of them.
     const out: Record<number, GeoAnchor> = {};
     for (const a of existing) {
       const vertex = plot.boundary.findIndex(
@@ -71,15 +81,27 @@ export default function FieldLocationScreen() {
     [draft]
   );
 
-  // Only the first two anchors count; a third replaces the oldest.
+  // Only the two most recent count; a third replaces the oldest.
   const pair = anchors.slice(-2);
 
   const check = useMemo(() => {
     if (!plot || pair.length < 2) return null;
-    return checkGeoref(plot, {
-      anchors: [pair[0].anchor, pair[1].anchor],
-    });
+    return checkGeoref(plot, { anchors: [pair[0].anchor, pair[1].anchor] });
   }, [plot, pair]);
+
+  const record = useCallback(
+    (vertex: number, p: GeoPoint, accuracyM?: number) => {
+      if (!plot) return;
+      const v = plot.boundary[vertex];
+      setDraft((prev) => ({
+        ...prev,
+        [vertex]: { x: v.x, y: v.y, lat: p.lat, lon: p.lon, accuracyM, at: Date.now() },
+      }));
+      setSaved(false);
+      setSelected(null);
+    },
+    [plot]
+  );
 
   const takeFix = useCallback(async () => {
     if (!plot || selected == null) return;
@@ -97,26 +119,13 @@ export default function FieldLocationScreen() {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
       });
-      const vertex = plot.boundary[selected];
-      setDraft((prev) => ({
-        ...prev,
-        [selected]: {
-          x: vertex.x,
-          y: vertex.y,
-          lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
-          accuracyM: pos.coords.accuracy ?? undefined,
-          at: Date.now(),
-        },
-      }));
-      setSaved(false);
-      setSelected(null);
+      record(selected, { lat: pos.coords.latitude, lon: pos.coords.longitude }, pos.coords.accuracy ?? undefined);
     } catch {
       setError(t('fieldLoc.fixFailed'));
     } finally {
       setFixing(false);
     }
-  }, [plot, selected, t]);
+  }, [plot, selected, t, record]);
 
   const save = useCallback(() => {
     if (!plot || pair.length < 2 || !check?.ok) return;
@@ -141,6 +150,7 @@ export default function FieldLocationScreen() {
   }
 
   const points = plot.boundary.map((p) => `${p.x * CANVAS},${p.y * CANVAS}`).join(' ');
+  const mapReady = satelliteMapAvailable();
 
   return (
     <Screen scroll>
@@ -155,150 +165,241 @@ export default function FieldLocationScreen() {
         <Text style={s.muted}>{t('fieldLoc.why', { metres: MIN_ANCHOR_SEPARATION_M })}</Text>
       </Card>
 
-      {/* Tap a corner */}
-      <SectionTitle title={t('fieldLoc.pickCorner')} icon="location" />
-      <Card>
-        <View style={s.canvasWrap}>
-          <Svg width={CANVAS} height={CANVAS}>
-            <Polygon
-              points={points}
-              fill={colors.surfaceAlt}
-              stroke={colors.border}
-              strokeWidth={1.5}
-            />
-            {plot.boundary.map((p, i) => {
-              const done = Boolean(draft[i]);
-              const active = selected === i;
-              return (
-                <React.Fragment key={i}>
-                  <Circle
-                    cx={p.x * CANVAS}
-                    cy={p.y * CANVAS}
-                    r={active ? 13 : 11}
-                    fill={done ? colors.ok : active ? colors.brand : colors.surface}
-                    stroke={done ? colors.ok : colors.brand}
-                    strokeWidth={2}
-                    onPress={() => {
-                      setSelected(i);
-                      setError(null);
-                    }}
-                  />
-                  <SvgText
-                    x={p.x * CANVAS}
-                    y={p.y * CANVAS + 4}
-                    fontSize={10}
-                    fontWeight="700"
-                    fill={done || active ? '#FFFFFF' : colors.brand}
-                    textAnchor="middle"
-                    onPress={() => {
-                      setSelected(i);
-                      setError(null);
-                    }}
-                  >
-                    {done ? '✓' : String(i + 1)}
-                  </SvgText>
-                </React.Fragment>
-              );
-            })}
-          </Svg>
-        </View>
-
-        {selected != null ? (
-          <>
-            <Divider style={{ marginVertical: spacing.md }} />
-            <Text style={s.instruction}>
-              {t('fieldLoc.standAt', { corner: selected + 1 })}
-            </Text>
-            <Button
-              title={t('fieldLoc.takeFix')}
-              icon="navigate"
-              loading={fixing}
-              onPress={() => void takeFix()}
-              style={{ marginTop: spacing.md }}
-            />
-          </>
-        ) : (
-          <Text style={s.hint}>{t('fieldLoc.tapHint')}</Text>
-        )}
-
-        {error ? (
-          <View style={s.errorRow}>
-            <Ionicons name="alert-circle" size={15} color={colors.danger} />
-            <Text style={s.errorText}>{error}</Text>
-          </View>
-        ) : null}
-      </Card>
-
-      {/* Fixes taken */}
-      {pair.length > 0 ? (
+      {/* Method choice, with the trade-offs stated rather than one silently
+          chosen for them. Neither method is better in general. */}
+      {method == null ? (
         <>
-          <SectionTitle title={t('fieldLoc.fixesTaken')} icon="pin" />
-          <Card>
-            {pair.map(({ vertex, anchor }, i) => (
-              <View key={vertex} style={s.fixRow}>
-                <View style={s.fixBadge}>
-                  <Text style={s.fixBadgeText}>{i + 1}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.fixCoord}>
-                    {anchor.lat.toFixed(6)}, {anchor.lon.toFixed(6)}
-                  </Text>
-                  <Text style={s.muted}>
-                    {t('fieldLoc.corner')} {vertex >= 0 ? vertex + 1 : '—'}
-                    {anchor.accuracyM != null ? ` · ±${Math.round(anchor.accuracyM)} m` : ''}
-                  </Text>
-                </View>
-              </View>
-            ))}
+          <SectionTitle title={t('fieldLoc.chooseMethod')} icon="options" />
+          <MethodCard
+            icon="walk"
+            title={t('fieldLoc.walkTitle')}
+            pros={[t('fieldLoc.walkPro1'), t('fieldLoc.walkPro2'), t('fieldLoc.walkPro3')]}
+            cons={[t('fieldLoc.walkCon1')]}
+            onPress={() => setMethod('walk')}
+          />
+          <MethodCard
+            icon="map"
+            title={t('fieldLoc.mapTitle')}
+            pros={[t('fieldLoc.mapPro1'), t('fieldLoc.mapPro2')]}
+            cons={[t('fieldLoc.mapCon1'), t('fieldLoc.mapCon2'), t('fieldLoc.mapCon3')]}
+            onPress={() => setMethod('map')}
+            disabledNote={mapReady ? undefined : t('fieldLoc.mapNeedsBuild')}
+          />
+        </>
+      ) : (
+        <>
+          <SectionTitle
+            title={method === 'walk' ? t('fieldLoc.walkTitle') : t('fieldLoc.mapTitle')}
+            icon={method === 'walk' ? 'walk' : 'map'}
+            action={t('fieldLoc.change')}
+            onAction={() => setMethod(null)}
+          />
 
-            {check ? (
+          {/* Step 1 of both flows: which corner are we placing? */}
+          <Card>
+            <View style={s.canvasWrap}>
+              <Svg width={CANVAS} height={CANVAS}>
+                <Polygon
+                  points={points}
+                  fill={colors.surfaceAlt}
+                  stroke={colors.border}
+                  strokeWidth={1.5}
+                />
+                {plot.boundary.map((p, i) => {
+                  const done = Boolean(draft[i]);
+                  const active = selected === i;
+                  const tap = () => {
+                    setSelected(i);
+                    setError(null);
+                  };
+                  return (
+                    <React.Fragment key={i}>
+                      <Circle
+                        cx={p.x * CANVAS}
+                        cy={p.y * CANVAS}
+                        r={active ? 13 : 11}
+                        fill={done ? colors.ok : active ? colors.brand : colors.surface}
+                        stroke={done ? colors.ok : colors.brand}
+                        strokeWidth={2}
+                        onPress={tap}
+                      />
+                      <SvgText
+                        x={p.x * CANVAS}
+                        y={p.y * CANVAS + 4}
+                        fontSize={10}
+                        fontWeight="700"
+                        fill={done || active ? '#FFFFFF' : colors.brand}
+                        textAnchor="middle"
+                        onPress={tap}
+                      >
+                        {done ? '✓' : String(i + 1)}
+                      </SvgText>
+                    </React.Fragment>
+                  );
+                })}
+              </Svg>
+            </View>
+
+            {selected == null ? (
+              <Text style={s.hint}>{t('fieldLoc.tapHint')}</Text>
+            ) : method === 'walk' ? (
               <>
                 <Divider style={{ marginVertical: spacing.md }} />
-                <Text style={s.muted}>
-                  {t('fieldLoc.separation', { m: Math.round(check.separationM) })}
-                  {check.impliedAcres != null
-                    ? ` · ${t('fieldLoc.implied', { acres: check.impliedAcres })}`
-                    : ''}
-                </Text>
-
-                {/* Problems block the save. A georeference that is wrong is worse
-                    than none at all: none of it stops a flight, and wrong sends
-                    the aircraft somewhere confident and incorrect. */}
-                {check.problems.map((p, i) => (
-                  <View key={`p${i}`} style={s.errorRow}>
-                    <Ionicons name="close-circle" size={15} color={colors.danger} />
-                    <Text style={s.errorText}>{p}</Text>
-                  </View>
-                ))}
-                {check.warnings.map((w, i) => (
-                  <View key={`w${i}`} style={s.warnRow}>
-                    <Ionicons name="warning" size={15} color={colors.warn} />
-                    <Text style={s.warnText}>{w}</Text>
-                  </View>
-                ))}
+                <Text style={s.instruction}>{t('fieldLoc.standAt', { corner: selected + 1 })}</Text>
+                <Button
+                  title={t('fieldLoc.takeFix')}
+                  icon="navigate"
+                  loading={fixing}
+                  onPress={() => void takeFix()}
+                  style={{ marginTop: spacing.md }}
+                />
               </>
             ) : (
-              <Text style={s.hint}>{t('fieldLoc.needTwo')}</Text>
+              <>
+                <Divider style={{ marginVertical: spacing.md }} />
+                <Text style={s.instruction}>{t('fieldLoc.tapOnMap', { corner: selected + 1 })}</Text>
+              </>
             )}
 
-            {saved ? (
-              <View style={s.okRow}>
-                <Ionicons name="checkmark-circle" size={17} color={colors.ok} />
-                <Text style={s.okText}>{t('fieldLoc.saved')}</Text>
+            {error ? (
+              <View style={s.errorRow}>
+                <Ionicons name="alert-circle" size={15} color={colors.danger} />
+                <Text style={s.errorText}>{error}</Text>
               </View>
-            ) : (
-              <Button
-                title={t('fieldLoc.save')}
-                icon="save"
-                onPress={save}
-                disabled={!check?.ok}
-                style={{ marginTop: spacing.md }}
-              />
-            )}
+            ) : null}
           </Card>
+
+          {/* Step 2 of the map flow: tap the same corner on the imagery. */}
+          {method === 'map' && selected != null ? (
+            <Card>
+              <SatelliteMap
+                center={
+                  pair[0] ? { lat: pair[0].anchor.lat, lon: pair[0].anchor.lon } : plot.centroid
+                }
+                picked={pair.map((p) => ({ lat: p.anchor.lat, lon: p.anchor.lon }))}
+                labels={pair.map((p) => String(p.vertex + 1))}
+                onPick={(p) => record(selected, p)}
+                onTileError={() => setError(t('fieldLoc.tilesFailed'))}
+              />
+              <Text style={s.hint}>{t('fieldLoc.mapAccuracyNote')}</Text>
+            </Card>
+          ) : null}
+
+          {/* Result */}
+          {pair.length > 0 ? (
+            <>
+              <SectionTitle title={t('fieldLoc.fixesTaken')} icon="pin" />
+              <Card>
+                {pair.map(({ vertex, anchor }, i) => (
+                  <View key={vertex} style={s.fixRow}>
+                    <View style={s.fixBadge}>
+                      <Text style={s.fixBadgeText}>{i + 1}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.fixCoord}>
+                        {anchor.lat.toFixed(6)}, {anchor.lon.toFixed(6)}
+                      </Text>
+                      <Text style={s.muted}>
+                        {t('fieldLoc.corner')} {vertex + 1}
+                        {anchor.accuracyM != null ? ` · ±${Math.round(anchor.accuracyM)} m` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+
+                {check ? (
+                  <>
+                    <Divider style={{ marginVertical: spacing.md }} />
+                    <Text style={s.muted}>
+                      {t('fieldLoc.separation', { m: Math.round(check.separationM) })}
+                      {check.impliedAcres != null
+                        ? ` · ${t('fieldLoc.implied', { acres: check.impliedAcres })}`
+                        : ''}
+                    </Text>
+
+                    {/* Problems block the save. A wrong georeference is worse
+                        than none: none of it stops a flight, wrong sends the
+                        aircraft somewhere confident and incorrect. */}
+                    {check.problems.map((p, i) => (
+                      <View key={`p${i}`} style={s.errorRow}>
+                        <Ionicons name="close-circle" size={15} color={colors.danger} />
+                        <Text style={s.errorText}>{p}</Text>
+                      </View>
+                    ))}
+                    {check.warnings.map((w, i) => (
+                      <View key={`w${i}`} style={s.warnRow}>
+                        <Ionicons name="warning" size={15} color={colors.warn} />
+                        <Text style={s.warnText}>{w}</Text>
+                      </View>
+                    ))}
+                  </>
+                ) : (
+                  <Text style={s.hint}>{t('fieldLoc.needTwo')}</Text>
+                )}
+
+                {saved ? (
+                  <View style={s.okRow}>
+                    <Ionicons name="checkmark-circle" size={17} color={colors.ok} />
+                    <Text style={s.okText}>{t('fieldLoc.saved')}</Text>
+                  </View>
+                ) : (
+                  <Button
+                    title={t('fieldLoc.save')}
+                    icon="save"
+                    onPress={save}
+                    disabled={!check?.ok}
+                    style={{ marginTop: spacing.md }}
+                  />
+                )}
+              </Card>
+            </>
+          ) : null}
         </>
-      ) : null}
+      )}
     </Screen>
+  );
+}
+
+function MethodCard({
+  icon,
+  title,
+  pros,
+  cons,
+  onPress,
+  disabledNote,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  pros: string[];
+  cons: string[];
+  onPress: () => void;
+  disabledNote?: string;
+}) {
+  return (
+    <Card onPress={disabledNote ? undefined : onPress} tone={disabledNote ? undefined : 'info'}>
+      <View style={s.methodTop}>
+        <Ionicons name={icon} size={20} color={disabledNote ? colors.textFaint : colors.info} />
+        <Text style={[s.methodTitle, disabledNote ? { color: colors.textMuted } : null]}>
+          {title}
+        </Text>
+        {!disabledNote ? (
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+        ) : null}
+      </View>
+      {pros.map((p, i) => (
+        <View key={`p${i}`} style={s.reasonRow}>
+          <Ionicons name="checkmark" size={13} color={colors.ok} />
+          <Text style={s.reasonText}>{p}</Text>
+        </View>
+      ))}
+      {cons.map((c, i) => (
+        <View key={`c${i}`} style={s.reasonRow}>
+          <Ionicons name="remove" size={13} color={colors.warn} />
+          <Text style={s.reasonText}>{c}</Text>
+        </View>
+      ))}
+      {disabledNote ? <Text style={s.disabledNote}>{disabledNote}</Text> : null}
+    </Card>
   );
 }
 
@@ -308,6 +409,21 @@ const s = StyleSheet.create({
   canvasWrap: { alignItems: 'center', paddingVertical: spacing.sm },
   instruction: { ...typography.bodyStrong, color: colors.text, lineHeight: 20 },
   hint: { ...typography.tiny, color: colors.textFaint, marginTop: spacing.md, lineHeight: 16 },
+  methodTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  methodTitle: { ...typography.h3, color: colors.text, flex: 1 },
+  reasonRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: 3 },
+  reasonText: { ...typography.small, color: colors.textMuted, flex: 1, lineHeight: 18 },
+  disabledNote: {
+    ...typography.tiny,
+    color: colors.warn,
+    marginTop: spacing.md,
+    lineHeight: 16,
+  },
   errorRow: {
     flexDirection: 'row',
     gap: spacing.sm,
