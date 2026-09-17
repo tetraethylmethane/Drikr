@@ -87,6 +87,35 @@ export function ScoutingCard({
                 </View>
               </View>
               <Text style={s.lookFor}>{o.window.lookFor}</Text>
+
+              {/* Provenance, per window. A farmer deciding whether to walk the
+                  field deserves to know whether the timing came from an
+                  agricultural university or from our own estimate, and an
+                  agronomist reviewing the table needs to see which lines to
+                  attack first. */}
+              <View style={s.srcRow}>
+                <Ionicons
+                  name={
+                    o.window.conditionsSource === 'estimated' ? 'help-circle-outline' : 'school-outline'
+                  }
+                  size={12}
+                  color={colors.textFaint}
+                />
+                <Text style={s.srcText}>
+                  {o.window.conditionsSource === 'estimated'
+                    ? t('scouting.srcEstimated')
+                    : t('scouting.srcNamed', { source: o.window.conditionsSource })}
+                </Text>
+              </View>
+
+              {/* Risk factors the source names that no forecast can check -
+                  soil temperature, nitrogen dose, close planting. Shown as
+                  advice, never scored. */}
+              {o.window.alsoNeeds ? (
+                <Text style={s.alsoNeeds}>
+                  {t('scouting.alsoWatch')}: {o.window.alsoNeeds}
+                </Text>
+              ) : null}
               {/* The reasons are shown because "the weather suits it" is a claim
                   the farmer should be able to check against their own sky. */}
               {o.reasons.length > 0 ? (
@@ -98,7 +127,8 @@ export function ScoutingCard({
         </>
       )}
 
-      {/* Stated every time, because this is a calendar and not a measurement. */}
+      {/* Stated every time, because a calendar is not a measurement of this
+          field however well sourced it is. */}
       <View style={s.caveat}>
         <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
         <Text style={s.caveatText}>{t('scouting.caveat')}</Text>
@@ -134,6 +164,9 @@ const s = StyleSheet.create({
   tag: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radii.pill },
   tagText: { ...typography.tiny, fontWeight: '700' },
   lookFor: { ...typography.small, color: colors.textMuted, marginTop: 5, lineHeight: 18 },
+  srcRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  srcText: { ...typography.tiny, color: colors.textFaint },
+  alsoNeeds: { ...typography.tiny, color: colors.textMuted, marginTop: 5, lineHeight: 16 },
   reasons: { ...typography.tiny, color: colors.info, marginTop: 4, lineHeight: 16 },
   daysLeft: { ...typography.tiny, color: colors.textFaint, marginTop: 4 },
   caveat: {

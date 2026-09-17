@@ -54,6 +54,21 @@ export interface CropProfile {
   diseaseWindows: DiseaseWindow[];
 }
 
+/**
+ * Where a piece of this entry came from.
+ *
+ * `TNAU` - the Tamil Nadu Agricultural University crop-protection guide,
+ * "Management of diseases of important Agriculture Crops of Tamil Nadu"
+ * (agritech.tnau.ac.in/pdf/8.pdf), which states favourable conditions and stage
+ * of infection per disease. Written by agronomists, which is the point.
+ *
+ * `estimated` - written from general agronomy and NOT verified against a
+ * source. Kept visible rather than quietly mixed in with the sourced entries,
+ * because an agronomist reviewing this table needs to know which lines to
+ * attack first, and because the UI should hedge harder on a guess.
+ */
+export type DiseaseSource = 'TNAU' | 'ICAR' | 'estimated';
+
 export interface DiseaseWindow {
   disease: string;
   /** Days after sowing, inclusive. */
@@ -62,6 +77,14 @@ export interface DiseaseWindow {
   /**
    * Weather that raises the odds. Every condition present must hold for the
    * window to count as favoured - absent fields are simply not checked.
+   *
+   * Deliberately absent on several entries. TNAU's favourable conditions are
+   * often things a forecast cannot evaluate - soil temperature, nitrogen dose,
+   * heavy soils, monoculture, close planting, insect wounding. Encoding those
+   * as air temperature would be inventing a check we cannot perform, so the
+   * window opens on the calendar and simply never reports as "weather suits
+   * it". The unencodable factors are carried in `alsoNeeds` instead, where they
+   * are useful advice rather than a false measurement.
    */
   favours?: {
     minHumidity?: number;
@@ -70,6 +93,15 @@ export interface DiseaseWindow {
     /** Dew or rain leaving the leaves wet is required for infection. */
     needsLeafWetness?: boolean;
   };
+  /**
+   * Risk factors the source names that we cannot check from weather - shown to
+   * the farmer as things to consider, never treated as a condition.
+   */
+  alsoNeeds?: string;
+  /** Provenance of `favours`. */
+  conditionsSource: DiseaseSource;
+  /** Provenance of `fromDay`/`toDay`. TNAU states a stage of infection for some. */
+  timingSource: DiseaseSource;
   /** What to look for, in plain words. Drives the scouting card and photo prompt. */
   lookFor: string;
 }
@@ -113,21 +145,31 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Blast',
         fromDay: 25,
         toDay: 85,
-        favours: { minHumidity: 85, minTempC: 20, maxTempC: 28, needsLeafWetness: true },
-        lookFor: 'Spindle-shaped grey lesions with dark brown borders on the leaves',
+        favours: { minHumidity: 93, minTempC: 15, maxTempC: 26, needsLeafWetness: true },
+        alsoNeeds:
+          'Excess nitrogen, and collateral host grasses on the bunds',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
+        lookFor: 'Spindle-shaped grey lesions with dark brown borders, often ringed by a yellow halo',
       },
       {
         disease: 'Bacterial Leaf Blight',
         fromDay: 40,
         toDay: 100,
         favours: { minHumidity: 80, minTempC: 25, maxTempC: 34 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Yellow to straw-white streaks along the leaf edges, spreading down from the tip',
       },
       {
         disease: 'Sheath Blight',
-        fromDay: 50,
+        fromDay: 30,
         toDay: 95,
-        favours: { minHumidity: 85, minTempC: 28, maxTempC: 32 },
+        favours: { minHumidity: 96, minTempC: 30, maxTempC: 32 },
+        alsoNeeds:
+          'Close planting and heavy nitrogen',
+        conditionsSource: 'TNAU',
+        timingSource: 'TNAU',
         lookFor: 'Oval water-soaked patches on the sheath, near the water line',
       },
     ],
@@ -160,6 +202,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 45,
         toDay: 105,
         favours: { minHumidity: 70, minTempC: 8, maxTempC: 18 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Yellow-orange powdery stripes running in rows along the leaf',
       },
       {
@@ -167,6 +211,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 35,
         toDay: 90,
         favours: { minHumidity: 75, minTempC: 15, maxTempC: 22 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'White powdery patches on the upper side of the leaf',
       },
       {
@@ -174,6 +220,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 75,
         toDay: 115,
         favours: { minHumidity: 80, minTempC: 18, maxTempC: 24 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Blackened grain inside the ear with a rotten-fish smell',
       },
     ],
@@ -205,14 +253,22 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Downy Mildew',
         fromDay: 15,
         toDay: 55,
-        favours: { minHumidity: 85, minTempC: 21, maxTempC: 27 },
-        lookFor: 'Pale yellow stripes with a white downy growth on the underside',
+        favours: { minHumidity: 90, minTempC: 21, maxTempC: 33, needsLeafWetness: true },
+        alsoNeeds:
+          'Young plants are the most susceptible',
+        conditionsSource: 'TNAU',
+        timingSource: 'TNAU',
+        lookFor: 'Chlorotic streaks with white fungal growth on both leaf surfaces; plants stunted and bushy',
       },
       {
         disease: 'Turcicum Leaf Blight',
         fromDay: 30,
         toDay: 85,
-        favours: { minHumidity: 80, minTempC: 18, maxTempC: 27 },
+        favours: { minTempC: 8, maxTempC: 27, needsLeafWetness: true },
+        alsoNeeds:
+          'Infection starts early in the wet season',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
         lookFor: 'Long cigar-shaped grey-green lesions, on the lower leaves first',
       },
       {
@@ -220,6 +276,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 35,
         toDay: 90,
         favours: { minHumidity: 75, minTempC: 16, maxTempC: 25 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Small cinnamon-brown pustules on both sides of the leaf',
       },
     ],
@@ -251,7 +309,10 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Root Rot',
         fromDay: 20,
         toDay: 70,
-        favours: { minTempC: 30 },
+        alsoNeeds:
+          'Dry weather after heavy rain, high soil temperature, and wounding by ash weevil grubs or nematodes. Soil temperature is not something the app can measure.',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
         lookFor: 'Sudden wilting in patches; bark peels off the root easily',
       },
       {
@@ -259,13 +320,19 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 30,
         toDay: 100,
         favours: { minHumidity: 80, minTempC: 28, maxTempC: 36 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Angular dark-brown spots bounded by the leaf veins',
       },
       {
         disease: 'Alternaria Leaf Spot',
         fromDay: 45,
         toDay: 120,
-        favours: { minHumidity: 75, minTempC: 25, maxTempC: 30 },
+        favours: { minTempC: 25, maxTempC: 28, needsLeafWetness: true },
+        alsoNeeds:
+          'High humidity with intermittent rain',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
         lookFor: 'Brown spots with concentric rings and grey centres',
       },
     ],
@@ -299,13 +366,19 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 15,
         toDay: 70,
         favours: { minTempC: 25 },
-        lookFor: 'Leaves curling upward and puckered, plant stunted - carried by whitefly',
+        alsoNeeds:
+          'Carried by whitefly, so whitefly numbers matter more than the weather',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Leaves curling upward and puckered, plant stunted',
       },
       {
         disease: 'Early Blight',
         fromDay: 30,
         toDay: 100,
         favours: { minHumidity: 75, minTempC: 24, maxTempC: 29 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Dark spots with target-like rings, on the lowest leaves first',
       },
       {
@@ -313,6 +386,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 35,
         toDay: 95,
         favours: { minHumidity: 85, minTempC: 12, maxTempC: 20, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Water-soaked grey-green patches with white mould on the underside',
       },
     ],
@@ -344,21 +419,30 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Smut',
         fromDay: 60,
         toDay: 240,
-        favours: { minTempC: 25, maxTempC: 30 },
+        alsoNeeds:
+          'Monoculture, continuous ratooning, and dry weather during tillering',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
         lookFor: 'A long black whip growing out of the top of the cane',
       },
       {
         disease: 'Red Rot',
         fromDay: 120,
         toDay: 300,
-        favours: { minHumidity: 80, minTempC: 25, maxTempC: 30 },
+        alsoNeeds:
+          'Monoculture, successive ratoon cropping, waterlogging, and insect injury. TNAU names no temperature or humidity for this one.',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
         lookFor: 'Split a cane: red inside with white crossbands, smells of alcohol',
       },
       {
         disease: 'Wilt',
         fromDay: 150,
         toDay: 330,
-        favours: { minTempC: 25 },
+        alsoNeeds:
+          'Water stress or waterlogging, root damage, and a previous wilt-affected crop in the same field. No clean weather window drives this one, so it opens on the calendar but never reports as weather-favoured.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Cane drying from the top down, hollow and light when tapped',
       },
     ],
@@ -390,21 +474,31 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Collar Rot',
         fromDay: 5,
         toDay: 35,
-        favours: { minTempC: 28, maxTempC: 32 },
+        favours: { needsLeafWetness: true },
+        alsoNeeds:
+          'A prolonged rainy spell at the seedling stage, and low-lying ground',
+        conditionsSource: 'TNAU',
+        timingSource: 'TNAU',
         lookFor: 'Seedlings collapsing at soil level, black fungal growth on the collar',
       },
       {
         disease: 'Tikka Leaf Spot',
         fromDay: 35,
         toDay: 95,
-        favours: { minHumidity: 80, minTempC: 25, maxTempC: 30 },
-        lookFor: 'Dark brown circular spots with a yellow halo',
+        favours: { minHumidity: 90, minTempC: 18, maxTempC: 24, needsLeafWetness: true },
+        alsoNeeds:
+          'Three days or more of high humidity, heavy nitrogen and phosphorus, and magnesium-deficient soil',
+        conditionsSource: 'TNAU',
+        timingSource: 'estimated',
+        lookFor: 'Circular reddish-brown to dark brown spots ringed by a bright yellow halo',
       },
       {
         disease: 'Rust',
         fromDay: 45,
         toDay: 100,
         favours: { minHumidity: 85, minTempC: 20, maxTempC: 28 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
         lookFor: 'Orange pustules on the underside of the leaflets',
       },
     ],

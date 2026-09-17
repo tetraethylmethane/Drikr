@@ -594,6 +594,9 @@
     "weatherSuits": "weather suits it",
     "daysLeft": "about {{days}} days left in this window",
     "caveat": "This is a crop calendar, not a measurement of your field. It says when to look, not what is there. The photos are what actually check.",
-    "flySurvey": "Plan a survey flight"
+    "flySurvey": "Plan a survey flight",
+    "srcNamed": "Timing and conditions from {{source}}",
+    "srcEstimated": "Our estimate — not yet checked against a published source",
+    "alsoWatch": "Also watch for"
   }
 }
