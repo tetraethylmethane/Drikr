@@ -10,6 +10,7 @@ import {
   fetchHistory,
   fetchLatestReadings,
   refreshNodes,
+  telemetrySource,
 } from '../services/telemetry';
 import { fetchForecast } from '../services/weather';
 import { addAlerts, markNotified } from '../store/slices/alertsSlice';
@@ -18,6 +19,7 @@ import {
   ingest,
   seedHistory,
   setForecast,
+  setHardwareUnreachable,
   setOnline,
   setRefreshing,
 } from '../store/slices/telemetrySlice';
@@ -87,6 +89,13 @@ export function useTelemetryEngine() {
       if (plotNodes.length === 0) return;
 
       const readings = await fetchLatestReadings(plotArg, plotNodes, at);
+
+      // Hardware mode with nothing coming back is a reportable state, not a
+      // slow start. Flagged rather than left to look like "still connecting".
+      if (telemetrySource() === 'hardware') {
+        dispatch(setHardwareUnreachable(Object.keys(readings).length === 0));
+      }
+
       const snapshot = buildSnapshot(plotArg, plotNodes, readings, at);
       const map = buildHealthMap(plotArg, plotNodes, readings, at);
 

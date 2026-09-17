@@ -10,6 +10,7 @@ import { staleAfterMs } from '../services/hardware';
 import { activeAlerts, sortAlerts } from '../services/alertEngine';
 import { activeMissions, proposeMission } from '../services/drone';
 import { scoutingPlan } from '../services/scouting';
+import { telemetryTarget } from '../services/telemetry';
 import { describeWeather } from '../services/weather';
 import { formatAge } from '../services/offline';
 import { usePlotState, useTelemetryEngine } from '../hooks/useTelemetry';
@@ -79,6 +80,7 @@ export default function HomeScreen() {
   );
 
   const farmerChecks = useAppSelector((s) => s.drone.farmerChecks);
+  const hardwareUnreachable = useAppSelector((s) => s.telemetry.hardwareUnreachable);
 
   const flySurvey = useCallback(() => {
     if (!plot) return;
@@ -251,6 +253,28 @@ export default function HomeScreen() {
           </View>
         ) : plan ? (
           <ScoutingCard plan={plan} onSurvey={flySurvey} />
+        ) : hardwareUnreachable ? (
+          // Configured for hardware and nothing came back. This has a cause and
+          // a fix, so it says both rather than showing an indefinite
+          // "connecting" that is indistinguishable from a slow start.
+          <Card tone="danger">
+            <View style={s.unreachableRow}>
+              <Ionicons name="cloud-offline" size={19} color={colors.danger} />
+              <View style={{ flex: 1 }}>
+                <Text style={s.unreachableTitle}>{t('home.gatewayUnreachable')}</Text>
+                <Text style={s.unreachableAddr}>{telemetryTarget() || '—'}</Text>
+              </View>
+            </View>
+            <Text style={s.unreachableBody}>{t('home.gatewayUnreachableBody')}</Text>
+            <Button
+              title={t('setup.connectTitle')}
+              icon="hardware-chip"
+              size="sm"
+              variant="secondary"
+              onPress={() => navigation.navigate('SensorSetup')}
+              style={{ marginTop: spacing.md }}
+            />
+          </Card>
         ) : (
           <Card>
             <Text style={s.loadingText}>{t('home.waitingForSensors')}</Text>
@@ -387,6 +411,20 @@ export default function HomeScreen() {
 }
 
 const s = StyleSheet.create({
+  unreachableRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  unreachableTitle: { ...typography.h3, color: colors.danger },
+  unreachableAddr: {
+    ...typography.tiny,
+    color: colors.textMuted,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  unreachableBody: {
+    ...typography.small,
+    color: colors.text,
+    marginTop: spacing.md,
+    lineHeight: 19,
+  },
   brandBar: {
     flexDirection: 'row',
     alignItems: 'center',

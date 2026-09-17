@@ -1,4 +1,4 @@
-import { hasTelemetryBackend } from '../config/env';
+import env, { hasTelemetryBackend } from '../config/env';
 import { Plot, PlotSnapshot, SensorNode, SensorReading } from '../types';
 import { assessPlot } from './decisionEngine';
 import {
@@ -9,7 +9,7 @@ import {
 } from './simulator/engine';
 import { SEED_SIM_PROFILES } from './simulator/seed';
 import apiClient from './api';
-import { fetchNodes, gridRefForNode, hasMasterAddress, mapNodeToReading } from './hardware';
+import { fetchNodes, gridRefForNode, hasMasterAddress, mapNodeToReading, masterBaseUrl } from './hardware';
 
 /**
  * Single seam between the app and field telemetry.
@@ -29,6 +29,19 @@ export function telemetrySource(): TelemetrySource {
   // Either source of address counts: .env for a developer, in-app pairing for a
   // farmer. Checking only the env var would leave a paired master unused.
   return hasMasterAddress() || hasTelemetryBackend() ? 'hardware' : 'simulated';
+}
+
+/**
+ * The address hardware mode is pointed at, for the UI to name.
+ *
+ * Refusing to invent readings is right, but it left the app sitting on
+ * "connecting to sensor nodes" forever when the gateway was simply not there —
+ * indistinguishable from a slow start, and impossible for a farmer (or a
+ * developer with a stale API_BASE_URL) to diagnose. A screen cannot explain the
+ * problem without knowing which address failed.
+ */
+export function telemetryTarget(): string {
+  return masterBaseUrl() || env.apiBaseUrl || '';
 }
 
 const HISTORY_POINTS = 24;

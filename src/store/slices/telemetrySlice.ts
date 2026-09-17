@@ -18,6 +18,14 @@ interface TelemetryState {
   /** Non-fatal message, e.g. serving cached data. */
   notice: string | null;
   /**
+   * Hardware mode is configured but the gateway returned nothing.
+   *
+   * Distinct from "no readings yet": this one has a cause and a fix, and the UI
+   * must say so instead of showing an indefinite "connecting" state. Set on
+   * every hardware tick that comes back empty, cleared as soon as one does not.
+   */
+  hardwareUnreachable: boolean;
+  /**
    * Last phone-as-courier pass. Deliberately not persisted, like everything
    * else in this slice — a courier result rehydrated next launch would claim a
    * walk-past that happened yesterday.
@@ -37,6 +45,7 @@ const initialState: TelemetryState = {
   online: true,
   refreshing: false,
   notice: null,
+  hardwareUnreachable: false,
   courier: null,
 };
 
@@ -84,6 +93,9 @@ const telemetrySlice = createSlice({
     setOnline: (state, action: PayloadAction<boolean>) => {
       state.online = action.payload;
     },
+    setHardwareUnreachable: (state, action: PayloadAction<boolean>) => {
+      state.hardwareUnreachable = action.payload;
+    },
     setNotice: (state, action: PayloadAction<string | null>) => {
       state.notice = action.payload;
     },
@@ -100,6 +112,7 @@ export const {
   setForecast,
   setOnline,
   setNotice,
+  setHardwareUnreachable,
   setCourierRun,
 } = telemetrySlice.actions;
 export default telemetrySlice.reducer;

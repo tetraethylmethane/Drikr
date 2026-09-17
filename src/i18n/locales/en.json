@@ -42,7 +42,9 @@
     "market": "Market",
     "syncedAt": "Synced",
     "simulatedFooter": "running on simulated telemetry",
-    "hardwareFooter": "connected to field hardware"
+    "hardwareFooter": "connected to field hardware",
+    "gatewayUnreachable": "Sensor gateway not reachable",
+    "gatewayUnreachableBody": "The app is set to read real sensors, but nothing answered at this address. Readings are deliberately left blank rather than filled in with simulated values you could not tell apart. Check the master is powered and on the same WiFi — or clear API_BASE_URL in .env to run on the demo simulator."
   },
   "fields": {
     "title": "My Fields",
