@@ -62,12 +62,24 @@ export interface CropProfile {
  * (agritech.tnau.ac.in/pdf/8.pdf), which states favourable conditions and stage
  * of infection per disease. Written by agronomists, which is the point.
  *
+ * `PAU` - Punjab Agricultural University / ICAR-IIWBR advisory guidance for
+ * wheat, which is where wheat advice for north India comes from. Weaker than the
+ * TNAU entries: those were read out of TNAU's own pages, while this reached us
+ * through agricultural press reporting the advisories rather than from a primary
+ * document. Treat as sourced but worth re-checking.
+ *
  * `estimated` - written from general agronomy and NOT verified against a
  * source. Kept visible rather than quietly mixed in with the sourced entries,
  * because an agronomist reviewing this table needs to know which lines to
  * attack first, and because the UI should hedge harder on a guess.
+ *
+ * Sourcing corrected real errors, which is the argument for doing it at all
+ * rather than trusting a table that reads plausibly. Rice Blast wanted COOL
+ * nights (TNAU: 15-20 C, RH 93-99%) where the estimate said 20-28 C; groundnut
+ * Tikka wanted ~20 C where the estimate said 25-30 C; rice Bacterial Leaf
+ * Blight tops out at 30 C, not 34.
  */
-export type DiseaseSource = 'TNAU' | 'ICAR' | 'estimated';
+export type DiseaseSource = 'TNAU' | 'ICAR' | 'PAU' | 'estimated';
 
 export interface DiseaseWindow {
   disease: string;
@@ -156,8 +168,10 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Bacterial Leaf Blight',
         fromDay: 40,
         toDay: 100,
-        favours: { minHumidity: 80, minTempC: 25, maxTempC: 34 },
-        conditionsSource: 'estimated',
+        favours: { minTempC: 25, maxTempC: 30, needsLeafWetness: true },
+        alsoNeeds:
+          'Severe wind that wounds the leaves, over-fertilisation, deep standing water, and rice stubble or ratoons of infected plants nearby. TNAU says high humidity but gives no figure, so none is invented here.',
+        conditionsSource: 'TNAU',
         timingSource: 'estimated',
         lookFor: 'Yellow to straw-white streaks along the leaf edges, spreading down from the tip',
       },
@@ -201,8 +215,10 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Yellow Rust',
         fromDay: 45,
         toDay: 105,
-        favours: { minHumidity: 70, minTempC: 8, maxTempC: 18 },
-        conditionsSource: 'estimated',
+        favours: { minHumidity: 80, minTempC: 10, maxTempC: 20, needsLeafWetness: true },
+        alsoNeeds:
+          'Most damaging early in crop growth. Yellowing of leaves is not always rust - confirm before spraying.',
+        conditionsSource: 'PAU',
         timingSource: 'estimated',
         lookFor: 'Yellow-orange powdery stripes running in rows along the leaf',
       },
@@ -210,7 +226,11 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Powdery Mildew',
         fromDay: 35,
         toDay: 90,
-        favours: { minHumidity: 75, minTempC: 15, maxTempC: 22 },
+        // Humid but NOT wet: free water on the leaf suppresses powdery
+        // mildew rather than helping it, unlike almost every other fungus in
+        // this table. needsLeafWetness is deliberately absent, and adding it
+        // "for consistency" would invert the biology.
+        favours: { minHumidity: 75, minTempC: 15, maxTempC: 25 },
         conditionsSource: 'estimated',
         timingSource: 'estimated',
         lookFor: 'White powdery patches on the upper side of the leaf',
@@ -220,6 +240,8 @@ export const CROPS: Record<string, CropProfile> = {
         fromDay: 75,
         toDay: 115,
         favours: { minHumidity: 80, minTempC: 18, maxTempC: 24 },
+        alsoNeeds:
+          'Infects at flowering. North Indian advisories place the protective spray in mid-February. Favourable conditions here are still unverified.',
         conditionsSource: 'estimated',
         timingSource: 'estimated',
         lookFor: 'Blackened grain inside the ear with a rotten-fish smell',
@@ -365,10 +387,13 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Leaf Curl Virus',
         fromDay: 15,
         toDay: 70,
-        favours: { minTempC: 25 },
+        // No `favours`: TNAU's page for this disease states no weather
+        // conditions at all, and it is whitefly-vectored - vector pressure
+        // drives it, not the sky. So the window opens on the calendar and
+        // never claims the weather suits it.
         alsoNeeds:
-          'Carried by whitefly, so whitefly numbers matter more than the weather',
-        conditionsSource: 'estimated',
+          'Whitefly numbers, which drive this far more than the weather. TNAU lists no temperature or humidity for it. Check the underside of young leaves for whitefly.',
+        conditionsSource: 'TNAU',
         timingSource: 'estimated',
         lookFor: 'Leaves curling upward and puckered, plant stunted',
       },
@@ -376,8 +401,9 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Early Blight',
         fromDay: 30,
         toDay: 100,
-        favours: { minHumidity: 75, minTempC: 24, maxTempC: 29 },
-        conditionsSource: 'estimated',
+        favours: { minTempC: 24, maxTempC: 29, needsLeafWetness: true },
+        alsoNeeds: 'Crop debris left from the previous season',
+        conditionsSource: 'TNAU',
         timingSource: 'estimated',
         lookFor: 'Dark spots with target-like rings, on the lowest leaves first',
       },
@@ -385,8 +411,13 @@ export const CROPS: Record<string, CropProfile> = {
         disease: 'Late Blight',
         fromDay: 35,
         toDay: 95,
-        favours: { minHumidity: 85, minTempC: 12, maxTempC: 20, needsLeafWetness: true },
-        conditionsSource: 'estimated',
+        // TNAU: "Cool nights, warm days and extended wet conditions from rain
+        // and fog", sporulation optimum 18-22 C. Its humidity line renders as
+        // "RH is < 90%", which is almost certainly a mis-escaped ">": sporangia
+        // require high humidity, and the same sentence demands extended wet
+        // conditions. Read as >= 90% rather than transcribed literally.
+        favours: { minHumidity: 90, minTempC: 18, maxTempC: 22, needsLeafWetness: true },
+        conditionsSource: 'TNAU',
         timingSource: 'estimated',
         lookFor: 'Water-soaked grey-green patches with white mould on the underside',
       },
