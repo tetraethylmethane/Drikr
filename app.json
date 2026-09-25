@@ -34,7 +34,11 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.Drikr.app",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Drikr uses speech recognition to understand your farming questions.",
+        "NSMicrophoneUsageDescription": "Drikr uses the microphone so you can ask Kisan Mitra questions by speaking."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -46,7 +50,8 @@
         "CAMERA",
         "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS"
       ]
     },
     "extra": {
@@ -60,6 +65,12 @@
       }
     },
     "owner": "tem005",
-    "icon": "./assets/icon.png"
+    "icon": "./assets/icon.png",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/91de863c-13ab-459a-84da-191750b6700e"
+    }
   }
 }

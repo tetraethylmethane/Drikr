@@ -1,0 +1,186 @@
+rules_version = '2';
+
+// Drikr — Firestore security rules.
+//
+// These replace the set in FIRESTORE_SECURITY_RULES.md, which could not work:
+// every rule in it was gated on `request.auth != null` while the app signed in
+// with a phone number and a PIN and never touched Firebase Auth, so `auth` was
+// always null and everything denied. Its `isE164` regex was also over-escaped
+// (`\\\\+` matches backslashes, not a plus), which would have blocked account
+// creation on its own.
+//
+// The app now calls `ensureSignedIn()` (anonymous auth) before any Firestore
+// access, so `request.auth` is real. Anonymous auth is free and needs no Blaze
+// plan.
+//
+// WHAT THIS DOES AND DOES NOT PROVE
+//
+// An anonymous uid proves the caller is running this app. It does not prove
+// which farmer they are — the uid is random and anyone can obtain one. So
+// ownership is bound explicitly: the uid is written onto the account document
+// at signup and re-claimed on each PIN-verified sign-in, and everything under
+// that document is gated on matching it.
+//
+// The honest residual risk: a caller who knows a phone number can claim an
+// account that has no `uid` yet, or overwrite the `uid` on one. Closing that
+// needs the PIN check to happen somewhere the client cannot forge — a Cloud
+// Function — which needs the Blaze plan. Until then this is materially better
+// than an open database and materially worse than real auth. Do not put
+// anything genuinely sensitive behind it.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------- helpers
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // A PIN is 4-6 digits, stored only as a SHA-256 hash: always 64 hex chars.
+    // Checking the shape stops a plaintext PIN being written by anything that
+    // is not our client.
+    function isPinHash(v) {
+      return v is string && v.size() == 64;
+    }
+
+    // E.164, e.g. +919876543210. Two backslashes here, not four: the rules
+    // string turns `\\+` into the regex `\+`, a literal plus.
+    function isE164(id) {
+      return id.matches('^\\+[1-9][0-9]{7,14}$');
+    }
+
+    function account(phone) {
+      return get(/databases/$(database)/documents/users/$(phone)).data;
+    }
+
+    // True when the caller holds the uid claimed on that account. An account
+    // with no uid yet is claimable — see the note at the top.
+    function ownsAccount(phone) {
+      return signedIn()
+             && exists(/databases/$(database)/documents/users/$(phone))
+             && (!('uid' in account(phone)) || account(phone).uid == request.auth.uid);
+    }
+
+    // ------------------------------------------------------------- accounts
+
+    match /users/{phone} {
+
+      // Read stays open, deliberately. Sign-in has to answer "does an account
+      // exist for this number?" before anyone is authenticated, which is the
+      // first step of the flow.
+      //
+      // This exposes a PIN *hash*. A 4-6 digit PIN under plain SHA-256 is
+      // brute-forceable offline by anyone who reads it, so this is a real
+      // weakness rather than a non-issue. It is tolerable only because the PIN
+      // gates app access and nothing else: no payment, no irreversible action,
+      // no personal data beyond a phone number. Move the existence check behind
+      // a Cloud Function before this app holds anything worth stealing.
+      allow read: if true;
+
+      allow create: if signedIn()
+                    && isE164(phone)
+                    && request.resource.data.phoneNumber == phone
+                    && request.resource.data.keys().hasAll(['phoneNumber', 'pinHash', 'sessionToken'])
+                    && isPinHash(request.resource.data.pinHash);
+
+      // The phone number and the PIN hash are immutable from the client.
+      // Without the pinHash guard anyone able to write could replace it with
+      // their own and take the account — exactly the attack the open read
+      // above would otherwise set up. A real PIN change needs a Cloud Function
+      // that verifies the old one first.
+      allow update: if signedIn()
+                    && request.resource.data.phoneNumber == resource.data.phoneNumber
+                    && request.resource.data.pinHash == resource.data.pinHash;
+
+      allow delete: if false;
+
+      // --- the farmer's own records, written by src/services/sync.ts --------
+
+      // Alert acknowledgements and resolutions. Mutable: a farmer can
+      // acknowledge and later resolve the same alert.
+      match /alerts/{alertId} {
+        allow read, write: if ownsAccount(phone);
+      }
+
+      // Confirmations on drone missions.
+      match /missions/{missionId} {
+        allow read, write: if ownsAccount(phone);
+      }
+
+      // Alert feedback and scouting observations. Append-only: this is the
+      // ground truth for the model-improvement loop, and training data that
+      // can be rewritten afterwards is worthless.
+      match /feedback/{docId} {
+        allow read: if ownsAccount(phone);
+        allow create: if ownsAccount(phone);
+        allow update, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------------ telemetry
+    //
+    // A deliberate change from the old rules, which said `allow write: if false`
+    // on the grounds that the app must never be able to write a reading.
+    //
+    // That held while a Cloud Function relay was the only writer. It cannot
+    // hold now: the phone IS the courier — it collects from the Master over
+    // WiFi and uploads, because Functions v2 requires the Blaze plan. Either
+    // the client can write readings, or there is no upload path at all on the
+    // free tier.
+    //
+    // So the guarantee is narrowed rather than pretended: readings are
+    // append-only and shape-checked, and provenance (`via`) is recorded on
+    // every document, so a fabricated reading is possible but cannot be edited
+    // afterwards or disguised as something else.
+    match /telemetry/{plotId} {
+      allow read: if signedIn();
+
+      // The per-plot summary the app watches with onSnapshot.
+      allow write: if signedIn()
+                   && request.resource.data.keys().hasAny(['latest', 'updatedAt']);
+
+      match /readings/{readingId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+                      && request.resource.data.keys().hasAll(['at', 'plotId'])
+                      && request.resource.data.at is int
+                      && request.resource.data.plotId == plotId;
+
+        // A reading that could be edited after the fact is not evidence.
+        allow update, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------------------ community
+    //
+    // Shared by design — that is the point of it. A post carries its author,
+    // and the rules require that author to be the caller's own phone number,
+    // so nobody can post as somebody else.
+    match /community/{postId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+                    && request.resource.data.keys().hasAll(['author', 'text'])
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() <= 2000
+                    && ownsAccount(request.resource.data.author);
+
+      // Only the author may edit or remove their own post, and they may not
+      // hand it to somebody else.
+      allow update: if signedIn()
+                    && ownsAccount(resource.data.author)
+                    && request.resource.data.author == resource.data.author;
+
+      allow delete: if signedIn() && ownsAccount(resource.data.author);
+    }
+
+    // -------------------------------------------------------------- default
+    // Anything not named above is denied. A new collection has to be added
+    // here on purpose rather than inheriting access by accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

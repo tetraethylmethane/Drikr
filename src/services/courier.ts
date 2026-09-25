@@ -1,4 +1,5 @@
 import env, { hasIngest } from '../config/env';
+import { sendReadingsToFirestore, syncAvailable } from './sync';
 import {
   cacheGet,
   cacheSet,
@@ -291,14 +292,24 @@ export async function sendToRelay(payloads: unknown[]): Promise<boolean> {
  * very likely the only copy.
  */
 export async function uploadQueued(
-  send: (payloads: unknown[]) => Promise<boolean> = sendToRelay
+  send?: (payloads: unknown[]) => Promise<boolean>
 ): Promise<UploadResult | null> {
-  if (!hasIngest()) return null;
+  // Two transports, picked by what is actually configured.
+  //
+  // The relay wins when INGEST_URL is set, because a Master that posts on its
+  // own can only reach the relay. Without it the phone writes Firestore
+  // directly — it already holds the SDK and the config, and it is by
+  // definition online when it uploads, so the relay buys nothing on this path.
+  //
+  // That fallback is what lets the whole product run on Firebase's free Spark
+  // plan: Functions v2 and Secret Manager both require Blaze.
+  const transport = send ?? (hasIngest() ? sendToRelay : sendReadingsToFirestore);
+  if (!hasIngest() && !syncAvailable()) return null;
   if (uploading) return null;
   uploading = true;
   try {
     if (!(await isOnline())) return null;
-    return await drainOutboxKind('telemetry', send);
+    return await drainOutboxKind('telemetry', transport);
   } finally {
     uploading = false;
   }

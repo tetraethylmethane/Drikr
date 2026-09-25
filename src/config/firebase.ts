@@ -1,5 +1,5 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { initializeAuth, getAuth, Auth } from 'firebase/auth';
+import { initializeAuth, getAuth, signInAnonymously, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
@@ -86,6 +86,43 @@ if (Platform.OS === 'web') {
 
 export { auth };
 export const db: Firestore = getFirestore(app);
+
+/**
+ * Make sure there is a Firebase identity before touching Firestore.
+ *
+ * Login is phone + PIN and deliberately not Firebase Auth — phone auth needs
+ * billing, and a PIN works with no signal once the account exists. The cost was
+ * that `request.auth` was always null, so every security rule written against
+ * it denied, and the only workable rules were "open to the whole internet".
+ *
+ * Anonymous auth closes that without changing how a farmer signs in. It is free,
+ * needs no Blaze plan, and the session persists in AsyncStorage, so this is one
+ * network call on first launch and nothing afterwards.
+ *
+ * What it does and does not buy, stated plainly:
+ *   - it proves a caller is running this app, which keeps anonymous scanners
+ *     out of the database entirely;
+ *   - it does NOT prove which farmer is calling. The uid is random. Ownership
+ *     comes from binding that uid to the phone document on first write, which
+ *     the rules then check on everything underneath it.
+ *
+ * Failure is non-fatal on purpose: the app is offline-first, and a farmer with
+ * no signal must still reach every local screen.
+ */
+export async function ensureSignedIn(): Promise<string | null> {
+  try {
+    if (auth.currentUser) return auth.currentUser.uid;
+    const cred = await signInAnonymously(auth);
+    return cred.user.uid;
+  } catch {
+    return null;
+  }
+}
+
+/** The current Firebase uid, or null. Never triggers a sign-in. */
+export function currentUid(): string | null {
+  return auth.currentUser?.uid ?? null;
+}
 
 // Export firebaseConfig for use in components like FirebaseRecaptchaVerifierModal
 export { firebaseConfig };

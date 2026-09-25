@@ -10,6 +10,9 @@ import { registerCalibration } from './src/config/calibration';
 import { configureNotifications } from './src/services/notifications';
 import { registerMasterAddress } from './src/services/hardware';
 import { uploadQueued } from './src/services/courier';
+import { pushFarmerWrites } from './src/services/sync';
+import { ensureSignedIn } from './src/config/firebase';
+import { getSession } from './src/utils/session';
 import { createStore } from './src/store/store';
 import { loadPersistedState } from './src/store/persist';
 import { colors } from './src/theme';
@@ -79,12 +82,26 @@ export default function App() {
   // alert feedback and community posts were being discarded after eight app
   // launches — exactly the training signal the comment claimed to protect.
   //
-  // Telemetry now has a real sender, and uploadQueued touches only telemetry.
-  // The farmer's other writes stay queued, untouched and un-penalised, until a
-  // backend for them exists.
+  // Telemetry has always had a real sender in uploadQueued, which touches only
+  // telemetry. The farmer's other writes — alert acknowledgements, feedback,
+  // scout observations, mission confirmations, community posts — used to have
+  // none at all: they queued to the device and stayed there. pushFarmerWrites
+  // is that missing sender.
+  //
+  // Both are safe to call unconditionally. Each no-ops when its backend is
+  // unconfigured, so running entirely offline against the simulator is still a
+  // supported way to use the app rather than a failure path.
   useEffect(() => {
     if (!store) return;
-    void uploadQueued();
+    void (async () => {
+      // Firestore rules require an identity. Without this the reads and writes
+      // below are rejected rather than merely empty, and an offline-first app
+      // would look broken instead of quiet.
+      await ensureSignedIn();
+      await uploadQueued();
+      const session = await getSession();
+      await pushFarmerWrites(session?.phoneNumber ?? null);
+    })();
   }, [store]);
 
   if (!store) {

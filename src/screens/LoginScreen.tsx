@@ -15,7 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
-import { db, hashPIN, validatePINFormat, verifyPIN } from '../config/firebase';
+import { ensureSignedIn, db, hashPIN, validatePINFormat, verifyPIN } from '../config/firebase';
 import {
   getLocalCredential,
   getSession,
@@ -138,11 +138,16 @@ export default function LoginScreen() {
 
     try {
       const token = await finish();
+      // The anonymous uid is claimed onto the account here. The security rules
+      // use it as the proof of ownership for everything under this document —
+      // alerts, feedback, missions — so it has to be written at create time.
+      const uid = await ensureSignedIn();
       await setDoc(doc(db, 'users', fullPhone), {
         phoneNumber: fullPhone,
         pinHash,
         sessionToken: token,
         language,
+        ...(uid ? { uid } : {}),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -175,9 +180,17 @@ export default function LoginScreen() {
         return;
       }
       const token = await finish();
+      // Re-claim on every successful sign-in, so moving to a new phone (a new
+      // anonymous uid) does not lock the farmer out of their own subcollections.
+      // The PIN was verified immediately above, which is what makes this safe.
+      const uid = await ensureSignedIn();
       await setDoc(
         doc(db, 'users', fullPhone),
-        { sessionToken: token, lastLoginAt: new Date().toISOString() },
+        {
+          sessionToken: token,
+          ...(uid ? { uid } : {}),
+          lastLoginAt: new Date().toISOString(),
+        },
         { merge: true }
       );
     } catch {
