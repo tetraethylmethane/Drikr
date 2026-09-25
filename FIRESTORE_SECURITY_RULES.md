@@ -1,5 +1,32 @@
 # Firestore Security Rules
 
+> ## ⚠️ SUPERSEDED — do not paste the rules below
+>
+> The live rules are [`firestore.rules`](firestore.rules) in the repo root, deployed
+> with `npx firebase-tools@15 deploy --only firestore:rules`.
+>
+> The ruleset in this file could never have worked, for two reasons:
+>
+> 1. **Every rule is gated on `request.auth != null`, and `auth` was always null.**
+>    Sign-in is a phone number and a PIN; Firebase Auth was initialised but never
+>    used. So telemetry, feedback and the catch-all denied everything the app did.
+>    The app now calls `ensureSignedIn()` (anonymous auth) first, which is what
+>    makes rules of this shape possible at all.
+>
+> 2. **`isE164` is over-escaped.** `'^\\+[1-9]…'` compiles to the regex `\+`,
+>    which matches backslashes rather than a literal plus, so it can never match
+>    `+919876543210` — account creation would have failed on its own.
+>
+> `firestore.rules` also reverses one decision made here deliberately: this file
+> says the app must never write a reading. That held while a Cloud Function relay
+> was the only writer. The phone is now the courier — Functions v2 needs the Blaze
+> plan — so either the client can write readings or there is no upload path on the
+> free tier. The guarantee is narrowed rather than pretended: append-only,
+> shape-checked, provenance recorded.
+>
+> The reasoning below is kept because most of it is still right, and the open-read
+> tradeoff on `users/` is carried over verbatim into the live rules.
+
 Rules to apply in the Firebase console. **Test mode expires roughly 30 days after the
 database is created**, after which every read and write starts failing — so these need
 publishing before that happens, not after.
