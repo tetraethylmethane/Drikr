@@ -32,6 +32,17 @@ interface SettingsState {
   privacyAcceptedAt?: number;
   /** Up to three numbers that get urgent alerts as SMS from this phone. Empty = off. */
   smsNumbers?: string[];
+  /** The first-launch language screen has been answered. */
+  languageChosen?: boolean;
+  /** Guided setup after sign-up has been finished (or skipped). */
+  setupDone?: boolean;
+  /**
+   * Consent to upload drone photos to train the crop AI. Undefined = not asked
+   * yet; nothing is uploaded until this is explicitly true.
+   */
+  sharePhotos?: boolean;
+  /** Screens whose spoken guide has already played once. */
+  guidedScreens?: string[];
 
   /**
    * Address of the sensor master, as entered or discovered during setup.
@@ -112,6 +123,19 @@ const settingsSlice = createSlice({
     setPrivacyAccepted: (state, action: PayloadAction<number>) => {
       state.privacyAcceptedAt = action.payload;
     },
+    setLanguageChosen: (state, action: PayloadAction<boolean>) => {
+      state.languageChosen = action.payload;
+    },
+    setSetupDone: (state, action: PayloadAction<boolean>) => {
+      state.setupDone = action.payload;
+    },
+    setSharePhotos: (state, action: PayloadAction<boolean>) => {
+      state.sharePhotos = action.payload;
+    },
+    markGuided: (state, action: PayloadAction<string>) => {
+      const seen = state.guidedScreens ?? [];
+      if (!seen.includes(action.payload)) state.guidedScreens = [...seen, action.payload];
+    },
     setSmsNumbers: (state, action: PayloadAction<string[]>) => {
       state.smsNumbers = action.payload.slice(0, 3);
     },
@@ -159,5 +183,9 @@ export const {
   setTransportCost,
   setPrivacyAccepted,
   setSmsNumbers,
+  setLanguageChosen,
+  setSetupDone,
+  setSharePhotos,
+  markGuided,
 } = settingsSlice.actions;
 export default settingsSlice.reducer;

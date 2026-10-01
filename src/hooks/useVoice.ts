@@ -23,6 +23,13 @@ import { tr } from '../i18n/tr';
  * calling screen needed edits.
  */
 
+/**
+ * Which hook instance owns the microphone right now. Recognition events go
+ * to every mounted instance; only the one that started listening may act on
+ * them, or a question asked in Kisan Mitra would also fire the assistant.
+ */
+let micOwner: symbol | null = null;
+
 export interface UseVoiceOptions {
   language: Language;
   onResult?: (text: string) => void;
@@ -36,6 +43,8 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
 
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
+  const me = useRef(Symbol('voice')).current;
+  const mine = () => micOwner === me;
 
   // Guards against a final result arriving after the user already stopped.
   const activeRef = useRef(false);
@@ -58,18 +67,21 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
   }, []);
 
   useSpeechRecognitionEvent('start', () => {
+    if (!mine()) return;
     activeRef.current = true;
     setListening(true);
     setError(null);
   });
 
   useSpeechRecognitionEvent('end', () => {
+    if (!mine()) return;
     activeRef.current = false;
     setListening(false);
     setPartial('');
   });
 
   useSpeechRecognitionEvent('result', (event) => {
+    if (!mine()) return;
     const transcript = event.results?.[0]?.transcript?.trim();
     if (!transcript) return;
 
@@ -85,6 +97,7 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
   });
 
   useSpeechRecognitionEvent('error', (event) => {
+    if (!mine()) return;
     activeRef.current = false;
     setListening(false);
     setPartial('');
@@ -93,6 +106,7 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
   });
 
   useSpeechRecognitionEvent('nomatch', () => {
+    if (!mine()) return;
     activeRef.current = false;
     setListening(false);
     setPartial('');
@@ -110,6 +124,7 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
         return;
       }
 
+      micOwner = me;
       ExpoSpeechRecognitionModule.start({
         lang: SPEECH_LOCALE[language],
         interimResults: true,

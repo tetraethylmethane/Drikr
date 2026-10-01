@@ -419,3 +419,32 @@ export interface UserProfile {
   fpo?: string;
   landAcres?: number;
 }
+
+/** A free sensor kit the farmer asked Drikr to install. Status moves on the team's side. */
+export interface SensorKitRequest {
+  uid: string;
+  phone?: string;
+  name?: string;
+  district?: string;
+  plotId?: string;
+  plotName?: string;
+  acres?: number;
+  crop?: string;
+  lat?: number;
+  lon?: number;
+  status: 'requested' | 'scheduled' | 'installed' | 'cancelled';
+  at: number;
+  /** Set by the team when an installation date is fixed. */
+  visitOn?: string;
+}
+
+/** One drone flight's photos, uploaded with consent to train the crop AI. */
+export interface FlightRecord {
+  id: string;
+  uid: string;
+  plotId?: string;
+  crop?: string;
+  stage?: string;
+  at: number;
+  photos: { url: string; lat: number; lon: number; takenAt: number; spot: number }[];
+}

@@ -2,34 +2,22 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { useVoice } from '../../hooks/useVoice';
-import { useLanguage } from '../../hooks/useLanguage';
-import { routeForSpeech } from '../../services/voiceRoutes';
+import { useAssistant } from './VoiceAssistant';
 import { colors, radii, spacing, typography } from '../../theme';
 
 /**
- * One big button: say what you want. For a farmer who cannot read the screen,
- * this is the whole app - "मौसम", "मंडी भाव", "drone" open the screen, and
- * anything else is asked to Kisan Mitra, which answers out loud.
+ * One big button on Home: say what you want. It is the same assistant as the
+ * mic on every screen (VoiceAssistant.tsx), just larger and labelled, so the
+ * farmer learns where talking starts.
  */
-export function VoiceCommand({ go }: { go: (screen: string, params?: object) => void }) {
+export function VoiceCommand(_props: { go?: (screen: string, params?: object) => void }) {
   const { t } = useTranslation();
-  const { language } = useLanguage();
-  const { listening, partial, error, sttAvailable, startListening, stopListening } = useVoice({
-    language,
-    onResult: (text) => {
-      const screen = routeForSpeech(text);
-      if (screen) go(screen);
-      else go('KisanMitra', { question: text });
-    },
-  });
-
-  if (!sttAvailable) return null;
+  const { listen, listening } = useAssistant();
 
   return (
     <View style={s.wrap}>
       <Pressable
-        onPress={() => void (listening ? stopListening() : startListening())}
+        onPress={listen}
         style={({ pressed }) => [s.btn, listening && s.btnOn, pressed && { opacity: 0.88 }]}
         accessibilityRole="button"
         accessibilityLabel={t('voiceNav.button')}
@@ -38,11 +26,10 @@ export function VoiceCommand({ go }: { go: (screen: string, params?: object) => 
         <View style={{ flex: 1 }}>
           <Text style={s.title}>{listening ? t('mitra.listening') : t('voiceNav.button')}</Text>
           <Text style={s.hint} numberOfLines={2}>
-            {listening ? partial || t('voiceNav.examples') : t('voiceNav.examples')}
+            {t('voiceNav.examples')}
           </Text>
         </View>
       </Pressable>
-      {error ? <Text style={s.error}>{error}</Text> : null}
     </View>
   );
 }

@@ -270,6 +270,38 @@ service cloud.firestore {
       }
     }
 
+    // ------------------------------------------------------- sensor kits
+    //
+    // Drikr gives sensors to farmers for free. The farmer asks; the team moves
+    // the status on (scheduled, installed) from the console. The farmer can
+    // only create a fresh request or cancel their own.
+    match /kitRequests/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isExpert());
+      allow create: if signedIn()
+                    && request.auth.uid == uid
+                    && request.resource.data.uid == uid
+                    && request.resource.data.status == 'requested';
+      allow update: if signedIn() && request.auth.uid == uid && (
+                      request.resource.data.status == 'cancelled'
+                      // Asking again after cancelling.
+                      || (resource.data.status == 'cancelled' && request.resource.data.status == 'requested'));
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ------------------------------------------------------------ flights
+    //
+    // Photo records from drone flights, uploaded with the farmer's consent to
+    // train the crop AI. The images are in Vercel Blob; this holds their links
+    // and where each was taken. Experts read them to label the training set.
+    match /flights/{flightId} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isExpert());
+      allow create, update: if signedIn()
+                            && request.resource.data.uid == request.auth.uid
+                            && request.resource.data.photos is list
+                            && request.resource.data.photos.size() <= 50;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     // -------------------------------------------------------------- default
     // Anything not named above is denied. A new collection has to be added
     // here on purpose rather than inheriting access by accident.

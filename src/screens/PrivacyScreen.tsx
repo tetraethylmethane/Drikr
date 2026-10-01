@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert as RNAlert, Linking, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert as RNAlert, Linking, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import env from '../config/env';
 import { currentUid } from '../config/firebase';
 import { deleteMyCloudData } from '../services/sync';
 import { signOut } from '../store/slices/userSlice';
+import { setSharePhotos } from '../store/slices/settingsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, spacing, typography } from '../theme';
 import { AppHeader, Button, Card, Screen, SectionTitle } from '../components/ui';
@@ -23,6 +24,7 @@ export default function PrivacyScreen() {
   const state = useAppSelector((s) => s);
   const profile = state.user.profile;
   const [busy, setBusy] = useState<'export' | 'delete' | null>(null);
+  const sharePhotos = state.settings.sharePhotos === true;
 
   const exportData = async () => {
     setBusy('export');
@@ -90,6 +92,20 @@ export default function PrivacyScreen() {
         </Text>
       </Card>
 
+      {/* Consent for the crop AI, changeable any time. */}
+      <SectionTitle title={t('photosCloud.title')} icon="images" />
+      <Card>
+        <View style={s.switchRow}>
+          <Text style={[s.p, { flex: 1, marginTop: 0 }]}>{t('photosCloud.consent')}</Text>
+          <Switch
+            value={sharePhotos}
+            onValueChange={(v) => void dispatch(setSharePhotos(v))}
+            trackColor={{ true: colors.brandLight, false: colors.borderStrong }}
+            thumbColor="#fff"
+          />
+        </View>
+      </Card>
+
       {profile ? (
         <>
           <SectionTitle title={t('privacy.yourData')} icon="person-circle" />
@@ -125,4 +141,5 @@ const s = StyleSheet.create({
   p: { ...typography.small, color: colors.textMuted, lineHeight: 19, marginTop: spacing.sm },
   link: { ...typography.small, color: colors.brand, fontWeight: '700' },
   mono: { ...typography.small, color: colors.text, fontFamily: 'monospace' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
 });

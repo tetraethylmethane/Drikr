@@ -16,10 +16,10 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-import { currentUid, db, ensureSignedIn } from '../config/firebase';
+import { currentUid, db, ensureSignedIn, idToken } from '../config/firebase';
 import { hasFirebase } from '../config/env';
 import { drainOutboxKind } from './offline';
-import { DroneBooking, OutboxItem } from '../types';
+import { DroneBooking, FlightRecord, OutboxItem, SensorKitRequest } from '../types';
 
 /**
  * The farmer's own writes, and the live view of them.
@@ -509,6 +509,19 @@ export async function deleteMyCloudData(phone: string | null): Promise<boolean> 
     for (const sub of ['alerts', 'missions', 'feedback']) await wipe(userCol(phone, sub));
   }
   await wipe(query(communityCol(), where('authorUid', '==', uid)));
+  await wipe(query(collection(db, 'flights'), where('uid', '==', uid)));
+  await deleteDoc(doc(db, 'kitRequests', uid)).catch(() => undefined);
+  // The drone photo files themselves, in Vercel Blob.
+  try {
+    const token = await idToken();
+    const res = await fetch('https://drikr.vercel.app/api/flight-photo', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) ok = false;
+  } catch {
+    ok = false;
+  }
   try {
     const mine = await getDocs(query(bookingsCol(), where('farmerUid', '==', uid)));
     for (const d of mine.docs) {
@@ -528,4 +541,69 @@ export async function deleteMyCloudData(phone: string | null): Promise<boolean> 
     }
   }
   return ok;
+}
+
+/* ------------------------------------------------------------ sensor kits */
+//
+// Drikr gives the sensors away and installs them. The farmer asks from the
+// app; the team moves the status on (requested -> scheduled -> installed) in
+// the console. One request per farmer, keyed by uid.
+
+const kitDoc = (uid: string) => doc(db, 'kitRequests', uid);
+
+export async function requestSensorKit(req: Omit<SensorKitRequest, 'uid' | 'status' | 'at'>): Promise<boolean> {
+  if (!syncAvailable()) return false;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    const body = Object.fromEntries(
+      Object.entries({ ...req, uid, status: 'requested', at: Date.now() }).filter(([, v]) => v !== undefined),
+    );
+    await setDoc(kitDoc(uid), body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function cancelSensorKit(): Promise<boolean> {
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    await updateDoc(kitDoc(uid), { status: 'cancelled' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function watchMySensorKit(onChange: (kit: SensorKitRequest | null) => void): Unsubscribe {
+  if (!syncAvailable()) return noop;
+  const uid = currentUid();
+  if (!uid) return noop;
+  try {
+    return onSnapshot(
+      kitDoc(uid),
+      (snap) => onChange(snap.exists() ? (snap.data() as SensorKitRequest) : null),
+      () => onChange(null),
+    );
+  } catch {
+    return noop;
+  }
+}
+
+/* ---------------------------------------------------------------- flights */
+
+/** The photo record of one flight; the images themselves live in Vercel Blob. */
+export async function saveFlightRecord(rec: Omit<FlightRecord, 'uid'>): Promise<boolean> {
+  if (!syncAvailable()) return false;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    const body = Object.fromEntries(Object.entries({ ...rec, uid }).filter(([, v]) => v !== undefined));
+    await setDoc(doc(db, 'flights', rec.id), body);
+    return true;
+  } catch {
+    return false;
+  }
 }

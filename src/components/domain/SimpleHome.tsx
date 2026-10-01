@@ -7,6 +7,7 @@ import { colors, radii, spacing, StatusTone, toneColors, typography } from '../.
 import { Alert, Plot, PlotSnapshot, Recommendation, RiskAssessment } from '../../types';
 import { Button, Card } from '../ui';
 import { VoiceCommand } from './VoiceCommand';
+import { GettingStarted } from './GettingStarted';
 
 // Read the home summary aloud once per app start, not on every visit.
 let readThisSession = false;
@@ -126,6 +127,7 @@ export function SimpleHome({
     { icon: 'paper-plane', label: t('simpleHome.moreBook'), screen: 'DroneBooking' },
     { icon: 'flask', label: t('simpleHome.moreSoil'), screen: 'SoilCard' },
     { icon: 'shield-checkmark', label: t('simpleHome.moreClaim'), screen: 'Claim' },
+    { icon: 'gift', label: t('kit.title'), screen: 'SensorKit' },
     { icon: 'hardware-chip', label: t('simpleHome.moreSensors'), screen: 'SensorNodes' },
   ];
 
@@ -150,6 +152,9 @@ export function SimpleHome({
         {body ? <Text style={s.statusBody}>{body}</Text> : null}
         {action ? <Button title={action.label} onPress={action.onPress} style={{ marginTop: spacing.md }} /> : null}
       </View>
+
+      {/* Anything skipped in setup, until it is done. */}
+      <GettingStarted go={go} />
 
       {/* The one thing to do. */}
       {recommendation ? (

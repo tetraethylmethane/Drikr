@@ -12,6 +12,8 @@ import {
   TrackRow,
   WaypointEvidence,
 } from '../../services/flightEvidence';
+import { uploadLastFlight, UploadResult } from '../../services/flightUpload';
+import { useAppSelector } from '../../store/hooks';
 import { colors, radii, spacing, typography } from '../../theme';
 import { Badge, Button, Card } from '../ui';
 
@@ -36,6 +38,18 @@ export function FlightResults({
   const [pod, setPod] = useState<PodLog | null>(cached.pod);
   const [busy, setBusy] = useState<'drone' | 'pod' | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const sharePhotos = useAppSelector((s) => s.settings.sharePhotos);
+  const plot = useAppSelector((s) => s.farm.plots.find((p) => p.id === s.farm.selectedPlotId) ?? s.farm.plots[0]);
+  const [cloud, setCloud] = useState<UploadResult | 'sending' | null>(null);
+
+  // With the farmer's consent, the flight's photos go to train the crop AI.
+  // Right after landing the phone is often still on the drone's WiFi, with no
+  // internet; a failed upload is retried at the next app start.
+  const shareFlight = async () => {
+    if (sharePhotos !== true) return;
+    setCloud('sending');
+    setCloud(await uploadLastFlight({ plotId: plot?.id, crop: plot?.crop, stage: plot?.stage }));
+  };
 
   const evidence = useMemo(
     () => (track ? joinFlight(track, photos ?? [], pod) : null),
@@ -50,6 +64,7 @@ export function FlightResults({
       setTrack(r.track);
       setPhotos(r.photos);
       setNote(t('drone.results.bridgeOk', { rows: r.track.length, photos: r.photos.length }));
+      void shareFlight();
     } catch (e: any) {
       setNote(e?.message ?? t('drone.results.bridgeFailed'));
     } finally {
@@ -112,6 +127,16 @@ export function FlightResults({
       </View>
       <Text style={s.hint}>{t('drone.results.wifiHintPhone')}</Text>
       {note ? <Text style={s.note}>{note}</Text> : null}
+      {cloud && cloud !== 'none' ? (
+        <View style={s.cloud}>
+          <Ionicons
+            name={cloud === 'failed' ? 'cloud-offline-outline' : cloud === 'sending' ? 'cloud-upload-outline' : 'cloud-done-outline'}
+            size={15}
+            color={cloud === 'failed' ? colors.warn : colors.ok}
+          />
+          <Text style={s.cloudText}>{t(`photosCloud.${cloud}`)}</Text>
+        </View>
+      ) : null}
 
       {evidence ? (
         evidence.waypoints.length === 0 ? (
@@ -191,6 +216,8 @@ function WaypointRow({ w }: { w: WaypointEvidence }) {
 }
 
 const s = StyleSheet.create({
+  cloud: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
+  cloudText: { ...typography.tiny, color: colors.textMuted, flex: 1 },
   lead: { ...typography.small, color: colors.text, lineHeight: 19 },
   stepRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   hint: { ...typography.tiny, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 16 },

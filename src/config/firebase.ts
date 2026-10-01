@@ -124,6 +124,19 @@ export function currentUid(): string | null {
   return auth.currentUser?.uid ?? null;
 }
 
+/**
+ * A short-lived Firebase ID token, which drikr.vercel.app verifies before it
+ * accepts a photo upload: only this app's signed-in users can write there.
+ */
+export async function idToken(): Promise<string | null> {
+  try {
+    await ensureSignedIn();
+    return (await auth.currentUser?.getIdToken()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Export firebaseConfig for use in components like FirebaseRecaptchaVerifierModal
 export { firebaseConfig };
 

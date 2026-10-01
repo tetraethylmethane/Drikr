@@ -33,6 +33,9 @@ import SoilCardScreen from '../screens/SoilCardScreen';
 import ClaimScreen from '../screens/ClaimScreen';
 import DroneBookingScreen from '../screens/DroneBookingScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
+import WelcomeScreen from '../screens/WelcomeScreen';
+import GuidedSetupScreen from '../screens/GuidedSetupScreen';
+import SensorKitScreen from '../screens/SensorKitScreen';
 
 /**
  * Navigation.
@@ -135,6 +138,10 @@ export default function AppNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Login">
       <Stack.Screen name="Login" component={LoginScreen} />
+      {/* Language first; Login sends new users here before anything else. */}
+      <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      <Stack.Screen name="Setup" component={GuidedSetupScreen} />
+      <Stack.Screen name="SensorKit" component={SensorKitScreen} />
       <Stack.Screen name="MainTabs" component={MainTabs} />
 
       <Stack.Screen name="FieldHealthMap" component={FieldHealthMapScreen} />

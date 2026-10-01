@@ -26,7 +26,7 @@ import {
 import { useLanguage } from '../hooks/useLanguage';
 import { LanguageButton } from '../components/domain/LanguagePicker';
 import { sessionChecked, signIn } from '../store/slices/userSlice';
-import { useAppDispatch } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, shadow, spacing, typography } from '../theme';
 import { Button, Screen } from '../components/ui';
 import { setPrivacyAccepted } from '../store/slices/settingsSlice';
@@ -46,6 +46,8 @@ export default function LoginScreen() {
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
   const { language, change } = useLanguage();
+  const languageChosen = useAppSelector((s) => s.settings.languageChosen);
+  const setupDone = useAppSelector((s) => s.settings.setupDone);
 
   const [step, setStep] = useState<'phone' | 'pin'>('phone');
   const [isSignup, setIsSignup] = useState(false);
@@ -78,6 +80,11 @@ export default function LoginScreen() {
         return;
       }
       dispatch(sessionChecked());
+      // A new user picks their language before seeing anything else.
+      if (!languageChosen) {
+        navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+        return;
+      }
       setRestoring(false);
     })();
     return () => {
@@ -116,11 +123,12 @@ export default function LoginScreen() {
     }
   };
 
-  const finish = async (profileName?: string) => {
+  const finish = async (profileName?: string, guided = false) => {
     const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
     await setSession({ phoneNumber: fullPhone, sessionToken: token, loggedIn: true });
     dispatch(signIn({ phoneNumber: fullPhone, name: profileName }));
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    // A new account is walked through setup, one question per screen.
+    navigation.reset({ index: 0, routes: [{ name: guided && !setupDone ? 'Setup' : 'MainTabs' }] });
     return token;
   };
 
@@ -141,7 +149,7 @@ export default function LoginScreen() {
     await saveLocalCredential(fullPhone, pinHash, false);
 
     try {
-      const token = await finish();
+      const token = await finish(undefined, true);
       // The anonymous uid is claimed onto the account here. The security rules
       // use it as the proof of ownership for everything under this document —
       // alerts, feedback, missions — so it has to be written at create time.

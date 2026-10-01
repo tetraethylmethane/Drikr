@@ -13,12 +13,15 @@ import { configureNotifications } from './src/services/notifications';
 import { registerMasterAddress } from './src/services/hardware';
 import { uploadQueued } from './src/services/courier';
 import { pushFarmerWrites } from './src/services/sync';
+import { uploadLastFlight } from './src/services/flightUpload';
 import { ensureSignedIn } from './src/config/firebase';
 import { getSession } from './src/utils/session';
 import { createStore } from './src/store/store';
 import { loadPersistedState } from './src/store/persist';
 import { colors } from './src/theme';
 import AppNavigator from './src/navigation/AppNavigator';
+import { navRef, notifyRouteChange } from './src/navigation/navigationRef';
+import { VoiceAssistantProvider } from './src/components/domain/VoiceAssistant';
 
 const navTheme = {
   ...DefaultTheme,
@@ -108,6 +111,13 @@ export default function App() {
       await uploadQueued();
       const session = await getSession();
       await pushFarmerWrites(session?.phoneNumber ?? null);
+      // A flight whose photos could not go up right after landing (the phone
+      // was still on the drone's WiFi) goes now - only with consent.
+      const st = store.getState();
+      if (st.settings.sharePhotos === true) {
+        const plot = st.farm.plots.find((p) => p.id === st.farm.selectedPlotId) ?? st.farm.plots[0];
+        await uploadLastFlight({ plotId: plot?.id, crop: plot?.crop, stage: plot?.stage }).catch(() => undefined);
+      }
     })();
   }, [store]);
 
@@ -123,12 +133,15 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <Provider store={store}>
-          <NavigationContainer theme={navTheme}>
+          <NavigationContainer theme={navTheme} ref={navRef} onReady={notifyRouteChange} onStateChange={notifyRouteChange}>
             {/* Android is edge-to-edge from SDK 54 on, so expo-status-bar no
                 longer takes backgroundColor — the bar sits over the app's own
                 background, which `Screen` already paints with colors.bg. */}
             <StatusBar style="dark" />
-            <AppNavigator />
+            {/* The voice assistant sits above every screen. */}
+            <VoiceAssistantProvider>
+              <AppNavigator />
+            </VoiceAssistantProvider>
           </NavigationContainer>
         </Provider>
       </SafeAreaProvider>
