@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OutboxItem } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Offline-first plumbing.
@@ -204,10 +205,10 @@ export async function isOnline(timeoutMs = 4000): Promise<boolean> {
 
 export function formatAge(at: number, now = Date.now()): string {
   const s = Math.max(0, Math.floor((now - at) / 1000));
-  if (s < 60) return 'just now';
+  if (s < 60) return tr('age.justNow');
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return tr('age.min', { n: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return tr('age.hour', { n: h });
+  return tr('age.day', { n: Math.floor(h / 24) });
 }

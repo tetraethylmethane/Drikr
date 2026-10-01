@@ -28,6 +28,11 @@ import SensorDetailScreen from '../screens/SensorDetailScreen';
 import SensorNodesScreen from '../screens/SensorNodesScreen';
 import SensorSetupScreen from '../screens/SensorSetupScreen';
 import WeatherScreen from '../screens/WeatherScreen';
+import SchemesScreen from '../screens/SchemesScreen';
+import SoilCardScreen from '../screens/SoilCardScreen';
+import ClaimScreen from '../screens/ClaimScreen';
+import DroneBookingScreen from '../screens/DroneBookingScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
 
 /**
  * Navigation.
@@ -146,6 +151,11 @@ export default function AppNavigator() {
       <Stack.Screen name="Market" component={MarketScreen} />
       <Stack.Screen name="Community" component={CommunityScreen} />
       <Stack.Screen name="ProfitLoss" component={ProfitLossScreen} />
+      <Stack.Screen name="Schemes" component={SchemesScreen} />
+      <Stack.Screen name="SoilCard" component={SoilCardScreen} />
+      <Stack.Screen name="Claim" component={ClaimScreen} />
+      <Stack.Screen name="DroneBooking" component={DroneBookingScreen} />
+      <Stack.Screen name="Privacy" component={PrivacyScreen} />
 
       {/* Domain shortcuts onto the shared detail screens */}
       <Stack.Screen name="Irrigation" component={RiskDetailScreen} initialParams={{ domain: 'irrigation' }} />

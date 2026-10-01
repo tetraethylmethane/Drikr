@@ -5,34 +5,47 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
 import { cropProfile, searchCrops, stageForDays } from '../config/agronomy';
-import indianDistricts from '../config/indianDistricts';
 import { addPlot } from '../store/slices/farmSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, typography } from '../theme';
 import { Plot } from '../types';
-import { AppHeader, Badge, Button, Card, Pill, Screen, SectionTitle } from '../components/ui';
+import { AppHeader, Button, Card, Pill, Screen } from '../components/ui';
+import { soilName, stageName } from '../i18n/tr';
 
 const IRRIGATION: Array<Plot['irrigationType']> = ['drip', 'sprinkler', 'flood', 'rainfed'];
 const SOILS = ['Red sandy loam', 'Clay loam', 'Black cotton soil', 'Alluvial', 'Sandy', 'Laterite'];
 
+/** "When did you sow?" as a farmer says it, mapped to days since sowing. */
+const SOWN: Array<{ key: string; days: number }> = [
+  { key: 'week', days: 4 },
+  { key: 'twoWeeks', days: 14 },
+  { key: 'month', days: 30 },
+  { key: 'twoMonths', days: 60 },
+  { key: 'threeMonths', days: 90 },
+  { key: 'fourMonths', days: 120 },
+];
+const SIZES = ['0.5', '1', '2', '5'];
+
 /**
- * Add a field.
+ * Add a field, as three short questions:
  *
- * Sowing date drives the crop stage, which drives every stage-dependent threshold in
- * the engine — so it is asked for as days-since-sowing, which a farmer knows, rather
- * than a calendar picker they have to work out.
+ *   1. What are you growing?      (name + crop)
+ *   2. When did you sow it?       (tap "about a month ago")
+ *   3. How big is it, and where?  (tap a size, tap "Use my location")
  *
- * Two things here decide what the rest of the app is allowed to claim about this
- * field:
+ * Everything has a sensible default, so a farmer can tap Next three times and
+ * have a working field. Soil, irrigation and sensors are real inputs to the
+ * engine but are not needed to start, so they sit under "More options".
  *
- *  - **The crop** must be one we actually have agronomy for. `cropProfile` falls
- *    back to maize for anything unknown, so letting a farmer type a crop we do
- *    not model would score their field against maize's moisture floors without
- *    ever saying so. The search box only ever selects a real profile.
- *  - **The monitoring mode** decides whether sensor nodes exist at all. A
- *    `scouting` field gets none, which is what stops the engine producing risk
- *    scores for a field that has nothing measuring it — the absence of nodes is
- *    the mechanism, not a UI flag.
+ * What the choices still decide, unchanged from the long form:
+ *
+ *  - **The crop** must be one we have agronomy for. `cropProfile` falls back to
+ *    maize for anything unknown, so the search only ever selects a real profile.
+ *  - **Sowing date** drives the crop stage, which drives every stage-dependent
+ *    threshold in the engine.
+ *  - **Sensors or not** decides whether sensor nodes exist at all. A field with
+ *    no sensors gets none, which is what stops the engine producing risk scores
+ *    for a field that has nothing measuring it.
  */
 export default function FieldSetupScreen() {
   const navigation = useNavigation<any>();
@@ -40,16 +53,18 @@ export default function FieldSetupScreen() {
   const { t } = useTranslation();
   const plots = useAppSelector((s) => s.farm.plots);
 
-  const [name, setName] = useState(`Plot ${String.fromCharCode(65 + plots.length)}${plots.length + 1}`);
+  const [step, setStep] = useState(1);
+  const [name, setName] = useState(t('setup.defaultName', { n: plots.length + 1 }));
   const [crop, setCrop] = useState('maize');
   const [cropQuery, setCropQuery] = useState('');
   const [monitoring, setMonitoring] = useState<'sensors' | 'scouting'>('scouting');
-  const [acres, setAcres] = useState('2');
+  const [acres, setAcres] = useState('1');
   const [daysSinceSowing, setDaysSinceSowing] = useState('30');
   const [soilType, setSoilType] = useState(SOILS[0]);
   const [irrigationType, setIrrigationType] = useState<Plot['irrigationType']>('drip');
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   const useMyLocation = async () => {
     setLocating(true);
@@ -78,12 +93,12 @@ export default function FieldSetupScreen() {
 
     const plot: Plot = {
       id: `plot-${Date.now().toString(36)}`,
-      name: name.trim() || 'New Plot',
+      name: name.trim() || t('setup.defaultName', { n: plots.length + 1 }),
       crop,
       areaAcres: Math.round(a * 100) / 100,
       sowingDate: new Date(Date.now() - das * 86_400_000).toISOString(),
       stage: stageForDays(profile, das),
-      // Default to a simple rectangle; a boundary walk can refine it later.
+      // Default to a simple rectangle; marking the corners later refines it.
       boundary: [
         { x: 0.1, y: 0.08 },
         { x: 0.9, y: 0.08 },
@@ -102,217 +117,209 @@ export default function FieldSetupScreen() {
   };
 
   const stage = stageForDays(cropProfile(crop), parseInt(daysSinceSowing, 10) || 0);
+  const crops = searchCrops(cropQuery);
 
   return (
     <Screen scroll>
-      <AppHeader title={t('setup.title')} subtitle={t('setup.subtitle')} onBack={() => navigation.goBack()} />
+      <AppHeader
+        title={t('setup.title')}
+        subtitle={t('setup.stepOf', { step, total: 3 })}
+        onBack={() => (step > 1 ? setStep(step - 1) : navigation.goBack())}
+      />
 
-      <Card>
-        <Label text={t('setup.fieldName')} icon="pricetag" />
-        <TextInput
-          style={s.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Plot A3"
-          placeholderTextColor={colors.textFaint}
-          maxLength={30}
-        />
+      {/* Progress */}
+      <View style={s.dots}>
+        {[1, 2, 3].map((n) => (
+          <View key={n} style={[s.dot, n <= step && s.dotOn]} />
+        ))}
+      </View>
 
-        <Label text={t('setup.area')} icon="resize" />
-        <View style={s.inlineRow}>
+      {/* 1 - What are you growing? */}
+      {step === 1 ? (
+        <Card>
+          <Text style={s.q}>{t('setup.q1')}</Text>
+
+          {/* Searchable, because a farmer types the word they use - aliases
+              carry dhan, gehu, kapas, tamatar, ganna, moongphali, makka. */}
           <TextInput
-            style={[s.input, { flex: 1 }]}
-            value={acres}
-            onChangeText={(v) => setAcres(v.replace(/[^0-9.]/g, ''))}
-            keyboardType="decimal-pad"
+            style={s.input}
+            value={cropQuery}
+            onChangeText={setCropQuery}
+            placeholder={t('setup.cropSearch')}
+            placeholderTextColor={colors.textFaint}
+            autoCorrect={false}
           />
-          <Text style={s.suffix}>{t('fields.acre')}</Text>
-        </View>
-      </Card>
-
-      {/* Crop */}
-      <SectionTitle title={t('setup.crop')} icon="leaf" />
-      <Card>
-        {/* Searchable, because a pill row does not scale and because a farmer
-            types the word they use — aliases carry dhan, gehu, kapas, tamatar,
-            ganna, moongphali, makka. */}
-        <TextInput
-          style={s.input}
-          value={cropQuery}
-          onChangeText={setCropQuery}
-          placeholder={t('setup.cropSearch')}
-          placeholderTextColor={colors.textFaint}
-          autoCorrect={false}
-        />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
-          {searchCrops(cropQuery).map((p) => (
-            <Pill key={p.key} label={p.label} active={crop === p.key} onPress={() => setCrop(p.key)} />
-          ))}
-        </ScrollView>
-        {/* An empty result is told the truth rather than left looking broken.
-            Picking a near-enough crop would silently apply the wrong thresholds,
-            so the honest answer is that we do not have it yet. */}
-        {searchCrops(cropQuery).length === 0 ? (
-          <View style={s.noCropRow}>
-            <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
-            <Text style={s.noCropText}>{t('setup.cropNotFound', { query: cropQuery.trim() })}</Text>
+          <View style={s.wrapRow}>
+            {crops.map((p) => (
+              <Pill key={p.key} label={p.label} active={crop === p.key} onPress={() => setCrop(p.key)} />
+            ))}
           </View>
-        ) : null}
+          {/* An empty result is told the truth: picking a near-enough crop would
+              quietly apply the wrong advice to the field. */}
+          {crops.length === 0 ? (
+            <View style={s.noteRow}>
+              <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
+              <Text style={s.noteText}>{t('setup.cropNotFound', { query: cropQuery.trim() })}</Text>
+            </View>
+          ) : null}
 
-        <Label text={t('setup.daysSinceSowing')} icon="calendar" />
-        <View style={s.inlineRow}>
+          <Text style={s.label}>{t('setup.fieldName')}</Text>
           <TextInput
-            style={[s.input, { flex: 1 }]}
-            value={daysSinceSowing}
-            onChangeText={(v) => setDaysSinceSowing(v.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
+            style={s.input}
+            value={name}
+            onChangeText={setName}
+            placeholderTextColor={colors.textFaint}
+            maxLength={30}
           />
-          <Badge label={stage} tone="info" />
-        </View>
-        <Text style={s.help}>{t('setup.stageHelp')}</Text>
-      </Card>
+          <Text style={s.help}>{t('setup.nameHelp')}</Text>
+        </Card>
+      ) : null}
 
-      {/* How this field gets watched. Both modes are real; neither is a
-          downgrade, and the difference is where the drone is sent. */}
-      <SectionTitle title={t('setup.monitoring')} icon="eye" />
-      <ModeCard
-        active={monitoring === 'scouting'}
-        onPress={() => setMonitoring('scouting')}
-        icon="scan"
-        title={t('setup.modeScoutTitle')}
-        body={t('setup.modeScoutBody')}
-        points={[t('setup.modeScoutP1'), t('setup.modeScoutP2'), t('setup.modeScoutP3')]}
-      />
-      <ModeCard
-        active={monitoring === 'sensors'}
-        onPress={() => setMonitoring('sensors')}
-        icon="hardware-chip"
-        title={t('setup.modeSensorTitle')}
-        body={t('setup.modeSensorBody')}
-        points={[t('setup.modeSensorP1'), t('setup.modeSensorP2'), t('setup.modeSensorP3')]}
-      />
+      {/* 2 - When did you sow it? */}
+      {step === 2 ? (
+        <Card>
+          <Text style={s.q}>{t('setup.q2', { crop: cropProfile(crop).label })}</Text>
+          <View style={s.wrapRow}>
+            {SOWN.map((o) => (
+              <Pill
+                key={o.key}
+                label={t(`setup.sown_${o.key}`)}
+                active={daysSinceSowing === String(o.days)}
+                onPress={() => setDaysSinceSowing(String(o.days))}
+              />
+            ))}
+          </View>
 
-      {/* Soil & irrigation */}
-      <SectionTitle title={t('setup.soilIrrigation')} icon="water" />
-      <Card>
-        <Label text={t('fields.soil')} icon="layers" />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
-          {SOILS.map((sl) => (
-            <Pill key={sl} label={sl} active={soilType === sl} onPress={() => setSoilType(sl)} />
-          ))}
-        </ScrollView>
-
-        <Label text={t('fields.irrigation')} icon="water" />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
-          {IRRIGATION.map((ir) => (
-            <Pill
-              key={ir}
-              label={t(`setup.irrigation_${ir}`)}
-              active={irrigationType === ir}
-              onPress={() => setIrrigationType(ir)}
+          <Text style={s.label}>{t('setup.orExactDays')}</Text>
+          <View style={s.inlineRow}>
+            <TextInput
+              style={[s.input, { flex: 1 }]}
+              value={daysSinceSowing}
+              onChangeText={(v) => setDaysSinceSowing(v.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
             />
-          ))}
-        </ScrollView>
-      </Card>
-
-      {/* Location */}
-      <SectionTitle title={t('setup.location')} icon="location" />
-      <Card>
-        <Text style={s.help}>{t('setup.locationHelp')}</Text>
-        {coords ? (
-          <View style={s.coordRow}>
-            <Ionicons name="checkmark-circle" size={17} color={colors.ok} />
-            <Text style={s.coordText}>
-              {coords.lat.toFixed(4)}, {coords.lon.toFixed(4)}
-            </Text>
+            <Text style={s.suffix}>{t('setup.daysAgo')}</Text>
           </View>
-        ) : null}
-        <Button
-          title={coords ? t('setup.updateLocation') : t('setup.useMyLocation')}
-          icon="navigate"
-          variant="secondary"
-          onPress={() => void useMyLocation()}
-          loading={locating}
-          style={{ marginTop: spacing.md }}
-        />
-      </Card>
+          <Text style={s.help}>{t('setup.stageNow', { stage: stageName(stage) })}</Text>
+        </Card>
+      ) : null}
 
-      {/* Node provisioning notice */}
-      <Card tone="info">
-        <View style={s.noticeRow}>
-          <Ionicons name="hardware-chip" size={17} color={colors.info} />
-          <Text style={s.noticeText}>{t('setup.nodeNotice')}</Text>
-        </View>
-      </Card>
+      {/* 3 - How big is it, and where? */}
+      {step === 3 ? (
+        <>
+          <Card>
+            <Text style={s.q}>{t('setup.q3')}</Text>
+            <View style={s.wrapRow}>
+              {SIZES.map((sz) => (
+                <Pill key={sz} label={`${sz} ${t('fields.acre')}`} active={acres === sz} onPress={() => setAcres(sz)} />
+              ))}
+            </View>
+            <Text style={s.label}>{t('setup.orExactSize')}</Text>
+            <View style={s.inlineRow}>
+              <TextInput
+                style={[s.input, { flex: 1 }]}
+                value={acres}
+                onChangeText={(v) => setAcres(v.replace(/[^0-9.]/g, ''))}
+                keyboardType="decimal-pad"
+              />
+              <Text style={s.suffix}>{t('fields.acre')}</Text>
+            </View>
+            <Text style={s.help}>{t('setup.sizeHelp')}</Text>
+          </Card>
 
-      <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}>
-        <Button title={t('setup.save')} icon="checkmark" onPress={save} size="lg" />
+          <Card>
+            <Text style={s.q}>{t('setup.qWhere')}</Text>
+            <Text style={s.help}>{t('setup.locationHelp')}</Text>
+            {coords ? (
+              <View style={s.noteRow}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.ok} />
+                <Text style={[s.noteText, { color: colors.ok, fontWeight: '700' }]}>{t('setup.locationSaved')}</Text>
+              </View>
+            ) : null}
+            <Button
+              title={coords ? t('setup.updateLocation') : t('setup.useMyLocation')}
+              icon="navigate"
+              variant={coords ? 'secondary' : 'primary'}
+              onPress={() => void useMyLocation()}
+              loading={locating}
+              style={{ marginTop: spacing.md }}
+            />
+          </Card>
+
+          {/* Real inputs, but none is needed to start. */}
+          <Pressable style={s.moreToggle} onPress={() => setShowMore((v) => !v)}>
+            <Ionicons name={showMore ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brandLight} />
+            <Text style={s.moreToggleText}>{showMore ? t('setup.lessOptions') : t('setup.moreOptions')}</Text>
+          </Pressable>
+
+          {showMore ? (
+            <Card>
+              <Text style={s.label}>{t('setup.monitoring')}</Text>
+              <Choice
+                active={monitoring === 'scouting'}
+                onPress={() => setMonitoring('scouting')}
+                title={t('setup.modeScoutTitle')}
+                body={t('setup.modeScoutBody')}
+              />
+              <Choice
+                active={monitoring === 'sensors'}
+                onPress={() => setMonitoring('sensors')}
+                title={t('setup.modeSensorTitle')}
+                body={t('setup.modeSensorBody')}
+              />
+
+              <Text style={s.label}>{t('fields.soil')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
+                {SOILS.map((sl) => (
+                  <Pill key={sl} label={soilName(sl)} active={soilType === sl} onPress={() => setSoilType(sl)} />
+                ))}
+              </ScrollView>
+
+              <Text style={s.label}>{t('fields.irrigation')}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pillRow}>
+                {IRRIGATION.map((ir) => (
+                  <Pill
+                    key={ir}
+                    label={t(`setup.irrigation_${ir}`)}
+                    active={irrigationType === ir}
+                    onPress={() => setIrrigationType(ir)}
+                  />
+                ))}
+              </ScrollView>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+
+      <View style={s.nav}>
+        {step < 3 ? (
+          <Button title={t('common.next')} icon="arrow-forward" onPress={() => setStep(step + 1)} size="lg" />
+        ) : (
+          <Button title={t('setup.save')} icon="checkmark" onPress={save} size="lg" />
+        )}
       </View>
     </Screen>
   );
 }
 
-function Label({ text, icon }: { text: string; icon: keyof typeof Ionicons.glyphMap }) {
+function Choice({ active, onPress, title, body }: { active: boolean; onPress: () => void; title: string; body: string }) {
   return (
-    <View style={s.labelRow}>
-      <Ionicons name={icon} size={14} color={colors.brandLight} />
-      <Text style={s.label}>{text}</Text>
-    </View>
-  );
-}
-
-function ModeCard({
-  active,
-  onPress,
-  icon,
-  title,
-  body,
-  points,
-}: {
-  active: boolean;
-  onPress: () => void;
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  body: string;
-  points: string[];
-}) {
-  return (
-    <Card onPress={onPress} tone={active ? 'info' : undefined}>
-      <View style={s.modeTop}>
-        <Ionicons name={icon} size={20} color={active ? colors.info : colors.textMuted} />
-        <Text style={[s.modeTitle, active ? { color: colors.text } : null]}>{title}</Text>
-        <Ionicons
-          name={active ? 'radio-button-on' : 'radio-button-off'}
-          size={19}
-          color={active ? colors.info : colors.border}
-        />
+    <Pressable onPress={onPress} style={[s.choice, active && s.choiceOn]}>
+      <Ionicons name={active ? 'radio-button-on' : 'radio-button-off'} size={20} color={active ? colors.brand : colors.textFaint} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.choiceTitle}>{title}</Text>
+        <Text style={s.choiceBody}>{body}</Text>
       </View>
-      <Text style={s.modeBody}>{body}</Text>
-      {points.map((p, i) => (
-        <View key={i} style={s.modePointRow}>
-          <Ionicons name="ellipse" size={5} color={colors.textFaint} />
-          <Text style={s.modePointText}>{p}</Text>
-        </View>
-      ))}
-    </Card>
+    </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  modeTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
-  modeTitle: { ...typography.h3, color: colors.textMuted, flex: 1 },
-  modeBody: { ...typography.small, color: colors.textMuted, lineHeight: 19, marginBottom: spacing.sm },
-  modePointRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 3 },
-  modePointText: { ...typography.tiny, color: colors.textMuted, flex: 1, lineHeight: 16 },
-  noCropRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'flex-start',
-    marginTop: spacing.sm,
-  },
-  noCropText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.md, marginBottom: 6 },
-  label: { ...typography.small, color: colors.textMuted, fontWeight: '700' },
+  dots: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, marginBottom: spacing.md },
+  dot: { flex: 1, height: 5, borderRadius: 3, backgroundColor: colors.border },
+  dotOn: { backgroundColor: colors.brand },
+  q: { fontSize: 19, fontWeight: '800', color: colors.text, lineHeight: 25, marginBottom: spacing.md },
+  label: { ...typography.small, color: colors.textMuted, fontWeight: '700', marginTop: spacing.lg, marginBottom: 6 },
   input: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radii.md,
@@ -321,12 +328,27 @@ const s = StyleSheet.create({
     ...typography.bodyStrong,
     color: colors.text,
   },
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: spacing.sm },
   inlineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  suffix: { ...typography.small, color: colors.textMuted, minWidth: 48 },
+  suffix: { ...typography.small, color: colors.textMuted, minWidth: 64 },
   pillRow: { paddingVertical: 2, paddingRight: spacing.lg },
-  help: { ...typography.tiny, color: colors.textFaint, marginTop: 6, lineHeight: 16 },
-  coordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
-  coordText: { ...typography.small, color: colors.text, fontWeight: '600' },
-  noticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  noticeText: { ...typography.tiny, color: colors.info, flex: 1, lineHeight: 16 },
+  help: { ...typography.tiny, color: colors.textMuted, marginTop: 8, lineHeight: 16 },
+  noteRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', marginTop: spacing.md },
+  noteText: { ...typography.tiny, color: colors.warn, flex: 1, lineHeight: 16 },
+  moreToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  moreToggleText: { ...typography.small, color: colors.brandLight, fontWeight: '700' },
+  choice: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    alignItems: 'flex-start',
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+  },
+  choiceOn: { borderColor: colors.brand, backgroundColor: colors.surfaceAlt },
+  choiceTitle: { ...typography.bodyStrong, color: colors.text },
+  choiceBody: { ...typography.tiny, color: colors.textMuted, marginTop: 3, lineHeight: 16 },
+  nav: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
 });

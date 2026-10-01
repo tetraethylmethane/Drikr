@@ -1,16 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { DOMAIN_LABELS } from '../config/agronomy';
 import { sortAlerts, suppressedRisks } from '../services/alertEngine';
 import { formatAge } from '../services/offline';
 import { usePlotState } from '../hooks/useTelemetry';
 import { useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, toneColors, typography } from '../theme';
 import { Alert, AlertStatus } from '../types';
-import { AppHeader, Badge, Card, EmptyState, ListRow, Pill, Screen, SectionTitle } from '../components/ui';
+import { AppHeader, Card, EmptyState, ListRow, Pill, Screen } from '../components/ui';
 import { DOMAIN_ICON, severityTone } from '../components/domain';
 
 /**
@@ -28,7 +27,10 @@ export default function AlertsScreen() {
   const confidenceThreshold = useAppSelector((s) => s.settings.confidenceThreshold);
   const { assessment } = usePlotState();
 
+  // Two lists a farmer thinks in: what needs me now, and what is done.
   const [filter, setFilter] = useState<'active' | 'all' | 'resolved'>('active');
+  // "Watching, not warning" is for the curious; closed unless asked for.
+  const [showWatching, setShowWatching] = useState(false);
 
   const filtered = useMemo(() => {
     const sorted = sortAlerts(alerts);
@@ -56,9 +58,8 @@ export default function AlertsScreen() {
       <AppHeader title={t('alerts.title')} subtitle={t('alerts.subtitle')} />
 
       <View style={s.filters}>
-        <Pill label={`${t('alerts.active')} (${counts.active})`} active={filter === 'active'} onPress={() => setFilter('active')} />
-        <Pill label={`${t('alerts.all')} (${counts.all})`} active={filter === 'all'} onPress={() => setFilter('all')} />
-        <Pill label={t('alerts.handled')} active={filter === 'resolved'} onPress={() => setFilter('resolved')} />
+        <Pill label={`${t('alerts.now')} (${counts.active})`} active={filter === 'active'} onPress={() => setFilter('active')} />
+        <Pill label={`${t('alerts.earlier')} (${counts.resolved})`} active={filter === 'resolved'} onPress={() => setFilter('resolved')} />
       </View>
 
       <FlatList
@@ -79,21 +80,22 @@ export default function AlertsScreen() {
         ListFooterComponent={
           suppressed.length > 0 && filter !== 'resolved' ? (
             <>
-              <SectionTitle title={t('alerts.belowThreshold')} icon="eye-off-outline" />
-              <Card>
-                <Text style={s.suppressedIntro}>{t('alerts.belowThresholdBody')}</Text>
-                {suppressed.map(({ risk, reason }) => (
-                  <View key={risk.domain} style={s.suppressedRow}>
-                    <ListRow
-                      title={risk.title}
-                      subtitle={reason}
-                      icon={DOMAIN_ICON[risk.domain]}
-                      tone="neutral"
-                      badge={`${risk.score}`}
-                    />
-                  </View>
-                ))}
-              </Card>
+              <Pressable style={s.watchToggle} onPress={() => setShowWatching((v) => !v)}>
+                <Ionicons name={showWatching ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brandLight} />
+                <Text style={s.watchToggleText}>
+                  {t('alerts.belowThreshold')} ({suppressed.length})
+                </Text>
+              </Pressable>
+              {showWatching ? (
+                <Card>
+                  <Text style={s.suppressedIntro}>{t('alerts.belowThresholdBody')}</Text>
+                  {suppressed.map(({ risk, reason }) => (
+                    <View key={risk.domain} style={s.suppressedRow}>
+                      <ListRow title={risk.title} subtitle={reason} icon={DOMAIN_ICON[risk.domain]} tone="neutral" />
+                    </View>
+                  ))}
+                </Card>
+              ) : null}
             </>
           ) : null
         }
@@ -134,15 +136,22 @@ function AlertRow({ alert, onPress }: { alert: Alert; onPress: () => void }) {
             </Text>
             {alert.status === 'new' ? <View style={[s.unread, { backgroundColor: fg }]} /> : null}
           </View>
-          <Text style={s.detail} numberOfLines={2}>
+          <Text style={s.detail} numberOfLines={3}>
             {alert.detail}
           </Text>
+          {alert.recommendations[0] && !dim ? (
+            <View style={[s.doBox, { backgroundColor: bg }]}>
+              <Text style={[s.doLabel, { color: fg }]}>{t('alerts.doThis')}</Text>
+              <Text style={s.doText} numberOfLines={3}>
+                {alert.recommendations[0].text}
+              </Text>
+            </View>
+          ) : null}
           <View style={s.metaRow}>
-            <Badge label={DOMAIN_LABELS[alert.domain]} tone="neutral" />
-            <Badge label={`${Math.round(alert.confidence * 100)}%`} tone={tone} />
             <Text style={s.meta}>
               {alert.plotName} · {formatAge(alert.createdAt)}
             </Text>
+            {!dim ? <Text style={s.more}>{t('alerts.seeMore')} ›</Text> : null}
           </View>
           {alert.status !== 'new' ? (
             <Text style={s.status}>{statusLabel(alert.status, t)}</Text>
@@ -170,6 +179,18 @@ const s = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, flexWrap: 'wrap' },
   meta: { ...typography.tiny, color: colors.textFaint },
   status: { ...typography.tiny, color: colors.textFaint, marginTop: 5, fontStyle: 'italic' },
+  doBox: { marginTop: spacing.sm, padding: spacing.sm + 2, borderRadius: radii.sm },
+  doLabel: { ...typography.tiny, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
+  doText: { ...typography.small, color: colors.text, marginTop: 2, lineHeight: 19, fontWeight: '600' },
+  more: { ...typography.tiny, color: colors.brandLight, fontWeight: '700', marginLeft: 'auto' },
+  watchToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  watchToggleText: { ...typography.small, color: colors.brandLight, fontWeight: '700' },
   suppressedIntro: { ...typography.small, color: colors.textMuted, lineHeight: 18, marginBottom: spacing.sm },
   suppressedRow: { borderTopWidth: 1, borderTopColor: colors.border },
 });

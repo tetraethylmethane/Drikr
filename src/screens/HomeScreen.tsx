@@ -19,7 +19,9 @@ import { useVoice } from '../hooks/useVoice';
 import { selectPlot } from '../store/slices/farmSlice';
 import { confirmMission, proposeMissionAction } from '../store/slices/droneSlice';
 import { markSurveyed } from '../store/slices/farmSlice';
+import { setSimpleHome } from '../store/slices/settingsSlice';
 import { ScoutingCard } from '../components/domain/ScoutingCard';
+import { LanguageButton } from '../components/domain/LanguagePicker';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, healthColor, radii, spacing, typography } from '../theme';
 import { Recommendation } from '../types';
@@ -30,10 +32,13 @@ import {
   PlotPicker,
   RecommendationList,
   RiskDomainRow,
+  SimpleHome,
   StatTile,
   riskTone,
 } from '../components/domain';
 import { Gauge } from '../components/charts';
+import { stageName } from '../i18n/tr';
+import { currentStage } from '../config/agronomy';
 
 /**
  * Home — the deck's primary mockup.
@@ -59,6 +64,8 @@ export default function HomeScreen() {
   const alerts = useAppSelector((s) => s.alerts.items);
   const missions = useAppSelector((s) => s.drone.missions);
   const { confidenceThreshold, autoSpeak } = useAppSelector((s) => s.settings);
+  // One sentence and four buttons by default; the full dashboard is a tap away.
+  const simple = useAppSelector((s) => s.settings.simpleHome) !== false;
 
   const { speak } = useVoice({ language });
 
@@ -120,8 +127,8 @@ export default function HomeScreen() {
   const speakSummary = useCallback(() => {
     if (!plot || !snapshot || !assessment) return;
     const lines = [
-      `${plot.name}. Crop health ${snapshot.healthIndex} out of 100.`,
-      assessment.primary ? `${assessment.primary.title}. ${assessment.primary.detail}` : 'No significant risk.',
+      t('homex.speakHealth', { plot: plot.name, index: snapshot.healthIndex }),
+      assessment.primary ? `${assessment.primary.title}. ${assessment.primary.detail}` : t('homex.speakClear'),
       ...assessment.recommendations.slice(0, 2).map((r) => r.text),
     ];
     speak(lines.join(' '));
@@ -173,26 +180,63 @@ export default function HomeScreen() {
             <Image source={require('../../assets/icon.png')} style={s.logoMark} resizeMode="contain" />
             <View>
               <Text style={s.brandName}>DRIKR SYSTEMS</Text>
-              <Text style={s.brandSub}>Smart Farming</Text>
+              <Text style={s.brandSub}>{t('homex.brandSub')}</Text>
             </View>
           </View>
 
           <View style={s.brandRight}>
             {!online ? <Badge label={t('common.offline')} tone="warn" icon="cloud-offline" /> : null}
-            <Pressable
-              style={s.langBtn}
-              onPress={() => {
-                const i = LANGUAGES.findIndex((l) => l.code === language);
-                change(LANGUAGES[(i + 1) % LANGUAGES.length].code);
-              }}
-              accessibilityLabel="Change language"
-            >
-              <Ionicons name="globe-outline" size={14} color={colors.brand} />
-              <Text style={s.langText}>{LANGUAGES.find((l) => l.code === language)?.native}</Text>
-              <Ionicons name="chevron-down" size={12} color={colors.brand} />
-            </Pressable>
+            <LanguageButton />
           </View>
         </View>
+
+        {simple ? (
+          <>
+            {plots.length > 1 && plot ? (
+              <View style={s.plotRow}>
+                <PlotPicker plots={plots} selectedId={plot.id} snapshots={snapshots} onSelect={(id) => dispatch(selectPlot(id))} />
+              </View>
+            ) : null}
+            <View style={{ marginTop: spacing.md }}>
+              <SimpleHome
+                plot={plot ?? null}
+                snapshot={snapshot ?? null}
+                topAlert={topAlert}
+                primary={assessment?.primary ?? null}
+                recommendation={assessment?.recommendations[0] ?? null}
+                noSensors={scouting}
+                sensorBoxUnreachable={Boolean(hardwareUnreachable)}
+                weatherLine={
+                  forecast && weather
+                    ? `${Math.round(forecast.now.temp)}°C · ${weather.label}${
+                        forecast.daily[0] ? ` · ${forecast.daily[0].precipProbability}% ${t('weather.rainChance')}` : ''
+                      }`
+                    : null
+                }
+                onSpeak={speak}
+                autoRead={autoSpeak}
+                go={(screen, params) => navigation.navigate(screen, params)}
+              />
+            </View>
+            <Button
+              title={t('simpleHome.showAll')}
+              icon="grid"
+              variant="ghost"
+              size="sm"
+              onPress={() => dispatch(setSimpleHome(false))}
+              style={{ marginHorizontal: spacing.lg, marginTop: spacing.md }}
+            />
+          </>
+        ) : (
+          <>
+        <Button
+          title={t('simpleHome.showSimple')}
+          icon="contract"
+          variant="ghost"
+          size="sm"
+          onPress={() => dispatch(setSimpleHome(true))}
+          style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
+        />
 
         {/* Alert banner */}
         {topAlert ? (
@@ -229,7 +273,7 @@ export default function HomeScreen() {
               snapshots={snapshots}
               onSelect={(id) => dispatch(selectPlot(id))}
             />
-            <Badge label={`${crop.label} · ${plot.stage}`} tone="neutral" />
+            <Badge label={`${crop.label} · ${stageName(currentStage(plot))}`} tone="neutral" />
             {telemetrySource() === 'simulated' ? (
               <Badge label={t('home.simulated')} tone="info" icon="hardware-chip-outline" />
             ) : null}
@@ -405,6 +449,8 @@ export default function HomeScreen() {
             {t('home.syncedAt')} {formatAge(lastSyncAt)} · {telemetrySource() === 'simulated' ? t('home.simulatedFooter') : t('home.hardwareFooter')}
           </Text>
         ) : null}
+          </>
+        )}
       </ScrollView>
     </Screen>
   );
@@ -438,18 +484,6 @@ const s = StyleSheet.create({
   brandName: { fontSize: 14, fontWeight: '900', color: colors.text, letterSpacing: 0.9 },
   brandSub: { fontSize: 9.5, fontWeight: '600', color: colors.textFaint, letterSpacing: 0.4 },
   brandRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  langBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radii.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  langText: { ...typography.small, color: colors.brand, fontWeight: '700' },
   okBanner: {
     flexDirection: 'row',
     alignItems: 'center',

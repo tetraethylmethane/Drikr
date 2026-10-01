@@ -1,0 +1,7 @@
+{
+  "name": "drone-link",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phone-side link to the Dynalog DR-DG600C (replaces the turbodrone laptop bridge)",
+  "main": "index.ts"
+}

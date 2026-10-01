@@ -15,11 +15,16 @@ import {
 } from '../../types';
 import { Badge, Button, Card, ConfidenceBar } from '../ui';
 import { DOMAIN_ICON, severityTone } from './AlertBanner';
+import { stageName, tr } from '../../i18n/tr';
+import { currentStage } from '../../config/agronomy';
 
 export { StatTile, MiniStat } from './StatTile';
 export { FieldHealthCanvas, HealthLegend } from './FieldHealthCanvas';
 export { AlertBanner, DOMAIN_ICON, severityTone } from './AlertBanner';
 export { RecommendationList } from './RecommendationCard';
+export { FlightResults } from './FlightResults';
+export { SimpleDroneFlow } from './SimpleDroneFlow';
+export { SimpleHome } from './SimpleHome';
 
 export function riskTone(level: RiskLevel): StatusTone {
   return level === 'high' ? 'danger' : level === 'moderate' ? 'warn' : 'ok';
@@ -45,7 +50,7 @@ export function PlotPicker({
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={s.pickerBtn} accessibilityLabel="Change field">
+      <Pressable onPress={() => setOpen(true)} style={s.pickerBtn} accessibilityLabel={tr('picker.change')}>
         <Ionicons name="map" size={14} color={colors.brand} />
         <Text style={s.pickerText}>{current.name}</Text>
         <Ionicons name="chevron-down" size={13} color={colors.brand} />
@@ -54,7 +59,7 @@ export function PlotPicker({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={s.backdrop} onPress={() => setOpen(false)}>
           <Pressable style={s.sheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={s.sheetTitle}>Select field</Text>
+            <Text style={s.sheetTitle}>{tr('picker.select')}</Text>
             <ScrollView style={{ maxHeight: 380 }}>
               {plots.map((p) => {
                 const snap = snapshots[p.id];
@@ -77,7 +82,7 @@ export function PlotPicker({
                     <View style={{ flex: 1 }}>
                       <Text style={s.plotName}>{p.name}</Text>
                       <Text style={s.plotMeta}>
-                        {cropProfile(p.crop).label} · {p.areaAcres} acre · {p.stage}
+                        {cropProfile(p.crop).label} · {p.areaAcres} {tr('fields.acre')} · {stageName(currentStage(p))}
                       </Text>
                     </View>
                     {snap ? (
@@ -131,7 +136,7 @@ export function RiskDomainRow({
         </View>
         <Text style={s.domainTitle} numberOfLines={1}>
           {risk.title}
-          {suppressed ? ' · below your alert threshold' : ''}
+          {suppressed ? ` · ${tr('picker.belowThreshold')}` : ''}
         </Text>
       </View>
     </Pressable>
@@ -176,18 +181,18 @@ function MissionTargets({ mission, plot }: { mission: DroneMission; plot: Plot }
         <Text style={s.targetsTitle}>
           {mission.targetCells.length}{' '}
           {mission.type === 'spray'
-            ? 'cells targeted'
+            ? tr('missionx.cells')
             : mission.type === 'survey'
-              ? 'sample points'
-              : 'waypoints'}
+              ? tr('missionx.samples')
+              : tr('missionx.waypoints')}
         </Text>
         <Text style={s.targetsNote}>
           {mission.type === 'spray'
-            ? `Skipping the other ${rows * cols - mission.targetCells.length} of ${rows * cols} cells`
+            ? tr('missionx.skipping', { skip: rows * cols - mission.targetCells.length, total: rows * cols })
             : mission.type === 'survey'
-              ? `Spread evenly across the field — ${rows * cols} cells sampled at ${mission.targetCells.length} points`
+              ? tr('missionx.spread', { total: rows * cols, n: mission.targetCells.length })
               : first
-                ? `Starting at grid ${first.row + 1},${first.col + 1} — the worst reading`
+                ? tr('missionx.startAt', { row: first.row + 1, col: first.col + 1 })
                 : ''}
         </Text>
       </View>
@@ -243,14 +248,14 @@ export function DroneMissionCard({
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.missionTitle}>
             {mission.type === 'spray'
-              ? 'Precision spraying'
+              ? tr('missionx.spray')
               : mission.type === 'survey'
-                ? 'Scheduled survey'
-                : 'Aerial inspection'}{' '}
+                ? tr('missionx.survey')
+                : tr('missionx.inspect')}{' '}
             · {mission.plotName}
           </Text>
           <Text style={s.missionMeta}>
-            {timeLabel} · {mission.areaAcres} acre
+            {timeLabel} · {mission.areaAcres} {tr('fields.acre')}
             {mission.payload ? ` · ${mission.payload.litres} L` : ''}
           </Text>
         </View>
@@ -282,37 +287,37 @@ export function DroneMissionCard({
               style={[s.domainFill, { width: `${mission.coveragePct}%`, backgroundColor: colors.info }]}
             />
           </View>
-          <Text style={s.missionMeta}>{mission.coveragePct}% coverage</Text>
+          <Text style={s.missionMeta}>{tr('missionx.coverage', { pct: mission.coveragePct })}</Text>
         </View>
       ) : null}
 
       {econ && mission.type === 'spray' && mission.status !== 'completed' ? (
         <View style={s.econRow}>
-          <EconStat label="Area treated" value={`${mission.areaAcres} / ${plot?.areaAcres} ac`} />
-          <EconStat label="Chemical saved" value={`${econ.chemicalSavedPct}%`} tone="ok" />
-          <EconStat label="Water" value={`${econ.waterLitres} L`} tone="ok" />
-          <EconStat label="Cost" value={`₹${econ.droneCost}`} />
+          <EconStat label={tr('missionx.area')} value={`${mission.areaAcres} / ${plot?.areaAcres} ac`} />
+          <EconStat label={tr('map.chemicalSaved')} value={`${econ.chemicalSavedPct}%`} tone="ok" />
+          <EconStat label={tr('profit.water')} value={`${econ.waterLitres} L`} tone="ok" />
+          <EconStat label={tr('missionx.cost')} value={`₹${econ.droneCost}`} />
         </View>
       ) : null}
 
       {mission.status === 'completed' ? (
         <View style={s.econRow}>
-          <EconStat label="Coverage" value={`${mission.coveragePct ?? 100}%`} tone="ok" />
-          {econ ? <EconStat label="Saved vs manual" value={`₹${econ.saving}`} tone="ok" /> : null}
+          <EconStat label={tr('missionx.coverageLabel')} value={`${mission.coveragePct ?? 100}%`} tone="ok" />
+          {econ ? <EconStat label={tr('missionx.saved')} value={`₹${econ.saving}`} tone="ok" /> : null}
         </View>
       ) : null}
 
       {(onConfirm || onAbort || onReschedule) && mission.status !== 'completed' && mission.status !== 'aborted' ? (
         <View style={s.missionActions}>
           {mission.status === 'proposed' && onConfirm ? (
-            <Button title="Confirm Schedule" onPress={onConfirm} style={{ flex: 1 }} />
+            <Button title={tr('map.confirmSchedule')} onPress={onConfirm} style={{ flex: 1 }} />
           ) : null}
           {mission.status === 'blocked' && onReschedule ? (
-            <Button title="Find next window" onPress={onReschedule} variant="secondary" style={{ flex: 1 }} />
+            <Button title={tr('missionx.nextWindow')} onPress={onReschedule} variant="secondary" style={{ flex: 1 }} />
           ) : null}
           {onAbort ? (
             <Button
-              title={mission.status === 'proposed' ? 'Decline' : 'Abort'}
+              title={mission.status === 'proposed' ? tr('missionx.decline') : tr('drone.abort')}
               onPress={onAbort}
               variant="secondary"
               style={mission.status === 'proposed' ? undefined : { flex: 1 }}
@@ -359,8 +364,8 @@ export function FeedbackPrompt({
         />
         <Text style={s.feedbackDoneText}>
           {alert.feedback.wasAccurate
-            ? 'You confirmed this alert. Thank you — it helps the model.'
-            : 'You marked this alert as inaccurate. The model will learn from it.'}
+            ? tr('feedback.yesDone')
+            : tr('feedback.noDone')}
         </Text>
       </View>
     );
@@ -368,10 +373,10 @@ export function FeedbackPrompt({
 
   return (
     <View>
-      <Text style={s.feedbackQ}>Was this alert correct for your field?</Text>
+      <Text style={s.feedbackQ}>{tr('feedback.q')}</Text>
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
         <Button
-          title="Yes, confirmed"
+          title={tr('feedback.yes')}
           icon="checkmark"
           onPress={() => onSubmit(true)}
           variant="secondary"
@@ -379,7 +384,7 @@ export function FeedbackPrompt({
           style={{ flex: 1 }}
         />
         <Button
-          title="No, not accurate"
+          title={tr('feedback.no')}
           icon="close"
           onPress={() => onSubmit(false)}
           variant="secondary"

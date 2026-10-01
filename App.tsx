@@ -5,6 +5,8 @@ import { Provider } from 'react-redux';
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { applyDirection } from './src/hooks/useLanguage';
+import { Language } from './src/types';
 import i18n from './src/i18n/i18n';
 import { registerCalibration } from './src/config/calibration';
 import { configureNotifications } from './src/services/notifications';
@@ -53,6 +55,11 @@ export default function App() {
       const language = (persisted?.settings as { language?: string } | undefined)?.language;
       if (language && language !== i18n.language) {
         await i18n.changeLanguage(language);
+      }
+      // Keep the layout direction in step with the saved language (Urdu is
+      // right to left). A mismatch is fixed once, with one restart.
+      if (language) {
+        applyDirection(language as Language);
       }
 
       // Push persisted settings into the non-React modules that need them

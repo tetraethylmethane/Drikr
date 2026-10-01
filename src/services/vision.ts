@@ -1,4 +1,5 @@
 import { cropProfile } from '../config/agronomy';
+import { MODEL_LANGUAGE } from '../i18n/languages';
 import env from '../config/env';
 import { Language, Plot, PlotSnapshot, RiskAssessment, RiskDomain } from '../types';
 
@@ -66,11 +67,6 @@ export interface DiagnoseInput {
   language: Language;
 }
 
-const LANG_NAME: Record<Language, string> = {
-  en: 'English',
-  hi: 'Hindi (Devanagari script)',
-  ta: 'Tamil (Tamil script)',
-};
 
 const SYSTEM_PROMPT = `You are a plant pathologist and entomologist examining a photograph taken by a small-holding Indian farmer in their own field, inside the Drikr farming app.
 
@@ -225,7 +221,7 @@ export async function diagnosePhoto(input: DiagnoseInput): Promise<PhotoDiagnosi
             parts: [
               { inlineData: { mimeType: 'image/jpeg', data: input.base64 } },
               {
-                text: `Reply in ${LANG_NAME[input.language]}.\n\nFIELD DATA:\n${contextBlock(input)}\n\nExamine the photograph and return JSON.`,
+                text: `Reply in ${MODEL_LANGUAGE[input.language]}.\n\nFIELD DATA:\n${contextBlock(input)}\n\nExamine the photograph and return JSON.`,
               },
             ],
           },

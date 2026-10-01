@@ -1,11 +1,24 @@
 /**
- * Drikr domain model (PS 26180).
+ * Drikr domain model.
  *
- * Mirrors the deck's data pipeline: field sensors + drone imagery + external data
+ * Mirrors the data pipeline: field sensors + drone imagery + external data
  * -> readings -> risk scoring -> alerts/recommendations -> drone missions -> feedback.
  */
 
-export type Language = 'en' | 'hi' | 'ta';
+export type Language =
+  | 'en'
+  | 'hi'
+  | 'bn'
+  | 'mr'
+  | 'te'
+  | 'ta'
+  | 'gu'
+  | 'ur'
+  | 'kn'
+  | 'or'
+  | 'ml'
+  | 'pa'
+  | 'as';
 
 export type RiskLevel = 'healthy' | 'moderate' | 'high';
 
@@ -105,6 +118,46 @@ export interface Plot {
   grid: { rows: number; cols: number };
   soilType: string;
   irrigationType: 'drip' | 'sprinkler' | 'flood' | 'rainfed';
+  /** The government Soil Health Card for this field, as the farmer typed it in. */
+  soilCard?: SoilCard;
+}
+
+/**
+ * Soil Health Card values (soilhealth.dac.gov.in). Available N, P, K in kg/ha,
+ * as printed on the card; organic carbon in %, EC in dS/m.
+ */
+export interface SoilCard {
+  n: number;
+  p: number;
+  k: number;
+  ph?: number;
+  ec?: number;
+  oc?: number;
+  /** Date of the soil test, YYYY-MM-DD. */
+  testedOn?: string;
+}
+
+/** A request for a drone service, shared with operators in the same district. */
+export interface DroneBooking {
+  id: string;
+  farmerUid: string;
+  farmerName: string;
+  /** Shared only after an operator accepts, so a stranger browsing open jobs cannot collect numbers. */
+  contactPhone?: string;
+  state?: string;
+  district: string;
+  village?: string;
+  crop: string;
+  acres: number;
+  job: 'spray' | 'survey';
+  /** YYYY-MM-DD the farmer wants it done. */
+  wantedOn: string;
+  note?: string;
+  status: 'open' | 'accepted' | 'done' | 'cancelled';
+  operatorUid?: string;
+  operatorName?: string;
+  operatorPhone?: string;
+  at: number;
 }
 
 export type NodeStatus = 'online' | 'degraded' | 'offline';
@@ -319,7 +372,18 @@ export interface ChatMessage {
 
 export interface CommunityPost {
   id: string;
+  /** Display name. Never the phone number: posts are readable by every user. */
   author: string;
+  /** Firebase uid of the writer; ownership in the rules hangs off this. */
+  authorUid?: string;
+  /** Crop key (not the translated label), so the "my crop" filter works in every language. */
+  cropKey?: string;
+  /** Written by an account the moderators marked as an agriculture expert. */
+  expert?: boolean;
+  /** Hidden by a moderator. */
+  hidden?: boolean;
+  /** Set on a reply: the post it answers. Replies are documents of their own. */
+  replyTo?: string;
   district?: string;
   crop?: string;
   text: string;

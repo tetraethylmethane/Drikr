@@ -1,6 +1,7 @@
 import { cropProfile, currentStage, DiseaseWindow, isKnownCrop } from '../config/agronomy';
 import { GridRef, Plot, WeatherForecast } from '../types';
 import { orderForFlight } from './healthMap';
+import { nameOf, tr } from '../i18n/tr';
 
 /**
  * Scheduled scouting, for fields with no sensors.
@@ -95,7 +96,7 @@ function favourCheck(
 
   if (f.minHumidity != null) {
     const peak = Math.max(...hours.map((h) => h.humidity));
-    if (peak >= f.minHumidity) reasons.push(`humidity reaching ${Math.round(peak)}%`);
+    if (peak >= f.minHumidity) reasons.push(tr('scoutx.humidity', { pct: Math.round(peak) }));
     else ok = false;
   }
 
@@ -110,7 +111,7 @@ function favourCheck(
     );
     if (inBand) {
       const band = [f.minTempC, f.maxTempC].filter((x) => x != null).join('-');
-      reasons.push(`temperature in the ${band} C range`);
+      reasons.push(tr('scoutx.temp', { band }));
     } else {
       ok = false;
     }
@@ -118,7 +119,7 @@ function favourCheck(
 
   if (f.needsLeafWetness) {
     const wet = hours.some((h) => h.precip > 0.2 || h.humidity >= 92);
-    if (wet) reasons.push('rain or dew leaving the leaves wet');
+    if (wet) reasons.push(tr('scoutx.wet'));
     else ok = false;
   }
 
@@ -232,13 +233,13 @@ export function surveyCells(plot: Plot, count = SURVEY_CELLS): GridRef[] {
 
 /** Plain-language summary for the scouting card. */
 export function describeScouting(plan: ScoutingPlan, now = Date.now()): string {
-  if (!plan.cropKnown) return 'Routine survey — no disease calendar for this crop yet.';
-  if (plan.open.length === 0) return 'No disease window open. Routine survey only.';
+  if (!plan.cropKnown) return tr('scoutx.noCalendar');
+  if (plan.open.length === 0) return tr('scoutx.noneOpen');
   const top = plan.open[0];
   if (top.state === 'favoured') {
-    return `${top.window.disease} season, and the weather suits it — survey every ${plan.intervalDays} days.`;
+    return tr('scoutx.favoured', { disease: nameOf(top.window.disease), days: plan.intervalDays });
   }
-  return `${top.window.disease} season — survey every ${plan.intervalDays} days.`;
+  return tr('scoutx.open', { disease: nameOf(top.window.disease), days: plan.intervalDays });
 }
 
 /** Days until due, negative when overdue. */

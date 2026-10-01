@@ -1,7 +1,7 @@
 /**
  * Drikr design tokens.
  *
- * Derived from the SIH 2026 deck (PS 26180) brand: dark-green primary on a light
+ * The Drikr brand: dark-green primary on a light
  * surface, with a three-step semantic status scale (Normal / Low / Alert) that the
  * sensor tiles and health map both reuse.
  *

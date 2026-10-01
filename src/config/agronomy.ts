@@ -1,4 +1,5 @@
 import { CropStage, RiskDomain, SensorMetric } from '../types';
+import { slug, tr } from '../i18n/tr';
 
 /**
  * Knowledge base for the decision engine (the deck's "Knowledge Base & Decision Engine").
@@ -534,7 +535,482 @@ export const CROPS: Record<string, CropProfile> = {
       },
     ],
   },
+  // ---------------------------------------------------------------------------
+  // Added in 1.2. Timing and weather for these are general agronomy, labelled
+  // `estimated` throughout until an agronomist signs them off; the app already
+  // hedges harder on estimated windows.
+  // ---------------------------------------------------------------------------
+  soybean: {
+    key: 'soybean',
+    label: 'Soybean',
+    moistureFloorByStage: { sowing: 42, vegetative: 40, flowering: 48, fruiting: 46, maturity: 30 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [42, 70], critical: [26, 85], unit: '%' },
+      nitrogen: { ideal: [100, 200], critical: [60, 300], unit: 'ppm' },
+    },
+    targetNpk: { n: 140, p: 60, k: 120 },
+    pestBaseTemp: 10,
+    commonPests: ['Girdle Beetle', 'Stem Fly', 'Tobacco Caterpillar'],
+    commonDiseases: ['Yellow Mosaic Virus', 'Rust', 'Charcoal Rot'],
+    typicalYieldQuintalPerAcre: 8,
+    stageDays: { sowing: 0, vegetative: 20, flowering: 40, fruiting: 65, maturity: 95 },
+    aliases: ['soya', 'soyabean', 'soya bean', 'bhatmas', 'glycine'],
+    diseaseWindows: [
+      {
+        disease: 'Yellow Mosaic Virus',
+        fromDay: 15,
+        toDay: 60,
+        alsoNeeds: 'Spread by whitefly. Check the underside of young leaves for whitefly.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Bright yellow patches mixed with green on the leaves',
+      },
+      {
+        disease: 'Rust',
+        fromDay: 35,
+        toDay: 90,
+        favours: { minHumidity: 80, minTempC: 18, maxTempC: 26, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Tiny tan to reddish-brown pustules on the underside of the leaves',
+      },
+      {
+        disease: 'Charcoal Rot',
+        fromDay: 50,
+        toDay: 95,
+        alsoNeeds: 'A hot dry spell and water stress while the pods fill',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Plants wilt and dry early; grey-black specks inside the lower stem',
+      },
+    ],
+  },
+  chickpea: {
+    key: 'chickpea',
+    label: 'Chickpea',
+    moistureFloorByStage: { sowing: 38, vegetative: 32, flowering: 38, fruiting: 35, maturity: 25 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [35, 62], critical: [22, 78], unit: '%' },
+      nitrogen: { ideal: [80, 170], critical: [50, 260], unit: 'ppm' },
+    },
+    targetNpk: { n: 110, p: 55, k: 100 },
+    pestBaseTemp: 8,
+    commonPests: ['Pod Borer', 'Cutworm', 'Aphid'],
+    commonDiseases: ['Wilt', 'Ascochyta Blight', 'Dry Root Rot'],
+    typicalYieldQuintalPerAcre: 6,
+    stageDays: { sowing: 0, vegetative: 25, flowering: 50, fruiting: 75, maturity: 105 },
+    aliases: ['chana', 'gram', 'bengal gram', 'kadalai', 'harbhara', 'sanagalu', 'cicer'],
+    diseaseWindows: [
+      {
+        disease: 'Wilt',
+        fromDay: 20,
+        toDay: 90,
+        alsoNeeds: 'Warm soil, and wilt in earlier chickpea crops in the same field',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Leaves droop and yellow from the bottom up; split the stem and look for brown streaks inside',
+      },
+      {
+        disease: 'Ascochyta Blight',
+        fromDay: 40,
+        toDay: 90,
+        favours: { minHumidity: 85, minTempC: 15, maxTempC: 25, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Brown spots with dark rings on the leaves, stems and pods',
+      },
+      {
+        disease: 'Dry Root Rot',
+        fromDay: 50,
+        toDay: 100,
+        alsoNeeds: 'Dry, hot soil at flowering and podding',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Plants dry up suddenly; the root is black, brittle and has lost its side roots',
+      },
+    ],
+  },
+  tur: {
+    key: 'tur',
+    label: 'Tur (Pigeon pea)',
+    moistureFloorByStage: { sowing: 40, vegetative: 34, flowering: 40, fruiting: 38, maturity: 26 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [38, 65], critical: [24, 80], unit: '%' },
+      nitrogen: { ideal: [80, 170], critical: [50, 260], unit: 'ppm' },
+    },
+    targetNpk: { n: 110, p: 55, k: 100 },
+    pestBaseTemp: 10,
+    commonPests: ['Pod Borer', 'Pod Fly', 'Blister Beetle'],
+    commonDiseases: ['Wilt', 'Sterility Mosaic', 'Phytophthora Blight'],
+    typicalYieldQuintalPerAcre: 6,
+    stageDays: { sowing: 0, vegetative: 30, flowering: 90, fruiting: 130, maturity: 170 },
+    aliases: ['arhar', 'toor', 'tuar', 'pigeon pea', 'pigeonpea', 'red gram', 'thuvarai', 'kandulu', 'cajanus'],
+    diseaseWindows: [
+      {
+        disease: 'Phytophthora Blight',
+        fromDay: 10,
+        toDay: 60,
+        favours: { needsLeafWetness: true },
+        alsoNeeds: 'Waterlogged, low-lying patches after heavy rain',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Water-soaked patches on the stem near the soil; the stem breaks and the plant dies',
+      },
+      {
+        disease: 'Sterility Mosaic',
+        fromDay: 20,
+        toDay: 90,
+        alsoNeeds: 'Spread by tiny mites; old or ratoon pigeon pea plants nearby',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Small, pale, crowded leaves with a mosaic pattern; bushy plants with no flowers',
+      },
+      {
+        disease: 'Wilt',
+        fromDay: 30,
+        toDay: 150,
+        alsoNeeds: 'Wilt in earlier pigeon pea crops in the same field',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Plants wilt in patches; a purple band at the stem base and brown streaks inside',
+      },
+    ],
+  },
+  moong: {
+    key: 'moong',
+    label: 'Moong (Green gram)',
+    moistureFloorByStage: { sowing: 40, vegetative: 36, flowering: 42, fruiting: 38, maturity: 26 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [38, 65], critical: [24, 80], unit: '%' },
+      nitrogen: { ideal: [70, 160], critical: [45, 250], unit: 'ppm' },
+    },
+    targetNpk: { n: 100, p: 50, k: 90 },
+    pestBaseTemp: 10,
+    commonPests: ['Whitefly', 'Thrips', 'Pod Borer'],
+    commonDiseases: ['Yellow Mosaic Virus', 'Powdery Mildew', 'Cercospora Leaf Spot'],
+    typicalYieldQuintalPerAcre: 4,
+    stageDays: { sowing: 0, vegetative: 20, flowering: 35, fruiting: 50, maturity: 65 },
+    aliases: ['mung', 'moong', 'green gram', 'pachai payaru', 'pesalu', 'hesaru', 'vigna radiata'],
+    diseaseWindows: [
+      {
+        disease: 'Yellow Mosaic Virus',
+        fromDay: 10,
+        toDay: 45,
+        alsoNeeds: 'Spread by whitefly. Check the underside of young leaves for whitefly.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Bright yellow patches mixed with green on the leaves',
+      },
+      {
+        disease: 'Cercospora Leaf Spot',
+        fromDay: 25,
+        toDay: 55,
+        favours: { minHumidity: 85, minTempC: 25, maxTempC: 32, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Small brown spots with grey centres and reddish edges on the leaves',
+      },
+      {
+        disease: 'Powdery Mildew',
+        fromDay: 30,
+        toDay: 60,
+        // Humid but not wet, as for wheat powdery mildew above.
+        favours: { minHumidity: 70, minTempC: 20, maxTempC: 28 },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'White powdery patches on the leaves',
+      },
+    ],
+  },
+  mustard: {
+    key: 'mustard',
+    label: 'Mustard',
+    moistureFloorByStage: { sowing: 38, vegetative: 34, flowering: 40, fruiting: 36, maturity: 25 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [36, 64], critical: [22, 80], unit: '%' },
+      nitrogen: { ideal: [120, 230], critical: [80, 330], unit: 'ppm' },
+    },
+    targetNpk: { n: 180, p: 50, k: 100 },
+    pestBaseTemp: 8,
+    commonPests: ['Mustard Aphid', 'Painted Bug', 'Sawfly'],
+    commonDiseases: ['Alternaria Blight', 'White Rust', 'Powdery Mildew'],
+    typicalYieldQuintalPerAcre: 6,
+    stageDays: { sowing: 0, vegetative: 25, flowering: 50, fruiting: 80, maturity: 115 },
+    aliases: ['sarson', 'rai', 'rapeseed', 'toria', 'kadugu', 'avalu', 'brassica'],
+    diseaseWindows: [
+      {
+        disease: 'White Rust',
+        fromDay: 30,
+        toDay: 90,
+        favours: { minHumidity: 80, minTempC: 10, maxTempC: 20, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Raised white blisters on the underside of the leaves; swollen, twisted flower stalks',
+      },
+      {
+        disease: 'Alternaria Blight',
+        fromDay: 40,
+        toDay: 110,
+        favours: { minHumidity: 70, minTempC: 18, maxTempC: 27, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Round dark-brown spots with rings on the leaves and pods',
+      },
+    ],
+  },
+  onion: {
+    key: 'onion',
+    label: 'Onion',
+    moistureFloorByStage: { sowing: 50, vegetative: 48, flowering: 50, fruiting: 45, maturity: 30 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [48, 72], critical: [30, 86], unit: '%' },
+      nitrogen: { ideal: [120, 230], critical: [80, 330], unit: 'ppm' },
+    },
+    targetNpk: { n: 180, p: 60, k: 140 },
+    pestBaseTemp: 10,
+    commonPests: ['Thrips', 'Onion Maggot', 'Cutworm'],
+    commonDiseases: ['Purple Blotch', 'Stemphylium Blight', 'Downy Mildew'],
+    typicalYieldQuintalPerAcre: 100,
+    stageDays: { sowing: 0, vegetative: 30, flowering: 60, fruiting: 90, maturity: 120 },
+    aliases: ['pyaz', 'pyaaz', 'kanda', 'vengayam', 'ulli', 'eerulli', 'allium'],
+    diseaseWindows: [
+      {
+        disease: 'Stemphylium Blight',
+        fromDay: 40,
+        toDay: 100,
+        favours: { minHumidity: 85, minTempC: 18, maxTempC: 25, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Yellow-brown streaks on one side of the leaf; the leaf tips dry out',
+      },
+      {
+        disease: 'Purple Blotch',
+        fromDay: 45,
+        toDay: 110,
+        favours: { minHumidity: 80, minTempC: 21, maxTempC: 30, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Small white sunken spots that grow into purple patches with yellow edges',
+      },
+    ],
+  },
+  potato: {
+    key: 'potato',
+    label: 'Potato',
+    moistureFloorByStage: { sowing: 48, vegetative: 50, flowering: 55, fruiting: 52, maturity: 35 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [50, 75], critical: [32, 88], unit: '%' },
+      nitrogen: { ideal: [150, 270], critical: [100, 380], unit: 'ppm' },
+    },
+    targetNpk: { n: 210, p: 70, k: 180 },
+    pestBaseTemp: 7,
+    commonPests: ['Aphid', 'Cutworm', 'Tuber Moth'],
+    commonDiseases: ['Late Blight', 'Early Blight', 'Black Scurf'],
+    typicalYieldQuintalPerAcre: 100,
+    stageDays: { sowing: 0, vegetative: 20, flowering: 40, fruiting: 60, maturity: 90 },
+    aliases: ['aloo', 'alu', 'batata', 'urulaikizhangu', 'bangaladumpa', 'solanum tuberosum'],
+    diseaseWindows: [
+      {
+        disease: 'Late Blight',
+        fromDay: 30,
+        toDay: 90,
+        favours: { minHumidity: 90, minTempC: 10, maxTempC: 22, needsLeafWetness: true },
+        alsoNeeds: 'Cool, foggy or drizzly days one after another. Spreads very fast - act the same day.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Water-soaked grey-green patches with white mould on the underside',
+      },
+      {
+        disease: 'Early Blight',
+        fromDay: 35,
+        toDay: 90,
+        favours: { minTempC: 24, maxTempC: 29, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Dark spots with target-like rings, on the oldest leaves first',
+      },
+    ],
+  },
+  chilli: {
+    key: 'chilli',
+    label: 'Chilli',
+    moistureFloorByStage: { sowing: 46, vegetative: 44, flowering: 50, fruiting: 48, maturity: 36 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [45, 72], critical: [28, 86], unit: '%' },
+      nitrogen: { ideal: [140, 250], critical: [90, 350], unit: 'ppm' },
+    },
+    targetNpk: { n: 200, p: 60, k: 160 },
+    pestBaseTemp: 11,
+    commonPests: ['Thrips', 'Mites', 'Fruit Borer'],
+    commonDiseases: ['Leaf Curl Virus', 'Anthracnose', 'Powdery Mildew'],
+    typicalYieldQuintalPerAcre: 10,
+    stageDays: { sowing: 0, vegetative: 30, flowering: 60, fruiting: 90, maturity: 150 },
+    aliases: ['mirchi', 'mirch', 'milagai', 'menasinakai', 'mirapa', 'capsicum', 'chili', 'chilly'],
+    diseaseWindows: [
+      {
+        disease: 'Leaf Curl Virus',
+        fromDay: 20,
+        toDay: 90,
+        alsoNeeds: 'Spread by whitefly; thrips and mites cause similar curling. Check the underside of young leaves.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Leaves curl, crinkle and stay small; the plant is stunted',
+      },
+      {
+        disease: 'Anthracnose',
+        fromDay: 90,
+        toDay: 160,
+        favours: { minHumidity: 85, minTempC: 24, maxTempC: 30, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Sunken dark spots with rings on ripe fruit; shoot tips dying back',
+      },
+    ],
+  },
+  banana: {
+    key: 'banana',
+    label: 'Banana',
+    moistureFloorByStage: { sowing: 55, vegetative: 55, flowering: 58, fruiting: 55, maturity: 45 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [55, 80], critical: [38, 92], unit: '%' },
+      nitrogen: { ideal: [170, 300], critical: [110, 420], unit: 'ppm' },
+    },
+    targetNpk: { n: 250, p: 60, k: 300 },
+    pestBaseTemp: 13,
+    commonPests: ['Rhizome Weevil', 'Pseudostem Weevil', 'Banana Aphid'],
+    commonDiseases: ['Sigatoka Leaf Spot', 'Panama Wilt', 'Bunchy Top'],
+    typicalYieldQuintalPerAcre: 200,
+    stageDays: { sowing: 0, vegetative: 90, flowering: 210, fruiting: 270, maturity: 330 },
+    aliases: ['kela', 'vazhai', 'vazha', 'bale', 'arati', 'plantain', 'musa'],
+    diseaseWindows: [
+      {
+        disease: 'Bunchy Top',
+        fromDay: 30,
+        toDay: 240,
+        alsoNeeds: 'Spread by the banana aphid and by infected suckers. Remove sick plants with their suckers.',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Narrow, stiff leaves bunched at the top; dark green dashes along the leaf veins',
+      },
+      {
+        disease: 'Sigatoka Leaf Spot',
+        fromDay: 120,
+        toDay: 330,
+        favours: { minHumidity: 85, minTempC: 25, maxTempC: 30, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Yellow streaks on the leaves that turn into brown spots with grey centres',
+      },
+    ],
+  },
+  bajra: {
+    key: 'bajra',
+    label: 'Bajra (Pearl millet)',
+    moistureFloorByStage: { sowing: 36, vegetative: 32, flowering: 38, fruiting: 34, maturity: 24 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [34, 62], critical: [20, 78], unit: '%' },
+      nitrogen: { ideal: [110, 210], critical: [70, 310], unit: 'ppm' },
+    },
+    targetNpk: { n: 160, p: 45, k: 100 },
+    pestBaseTemp: 12,
+    commonPests: ['Shoot Fly', 'Stem Borer', 'White Grub'],
+    commonDiseases: ['Downy Mildew', 'Ergot', 'Blast'],
+    typicalYieldQuintalPerAcre: 8,
+    stageDays: { sowing: 0, vegetative: 20, flowering: 45, fruiting: 65, maturity: 85 },
+    aliases: ['bajri', 'kambu', 'sajje', 'sajjalu', 'pearl millet', 'millet', 'pennisetum'],
+    diseaseWindows: [
+      {
+        disease: 'Downy Mildew',
+        fromDay: 10,
+        toDay: 50,
+        favours: { minHumidity: 85, minTempC: 20, maxTempC: 30, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Yellow streaks on leaves with white down underneath; ears turn into leafy green heads',
+      },
+      {
+        disease: 'Ergot',
+        fromDay: 45,
+        toDay: 75,
+        favours: { minHumidity: 80, minTempC: 20, maxTempC: 30, needsLeafWetness: true },
+        alsoNeeds: 'Cloudy, drizzly weather while the crop is flowering',
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Sticky pink or honey-like drops oozing from the ears',
+      },
+    ],
+  },
+  ragi: {
+    key: 'ragi',
+    label: 'Ragi (Finger millet)',
+    moistureFloorByStage: { sowing: 38, vegetative: 34, flowering: 40, fruiting: 36, maturity: 25 },
+    bands: {
+      ...COMMON_BANDS,
+      soilMoisture: { ideal: [36, 64], critical: [22, 80], unit: '%' },
+      nitrogen: { ideal: [100, 200], critical: [60, 300], unit: 'ppm' },
+    },
+    targetNpk: { n: 150, p: 45, k: 90 },
+    pestBaseTemp: 11,
+    commonPests: ['Pink Stem Borer', 'Aphid', 'Earhead Caterpillar'],
+    commonDiseases: ['Blast', 'Brown Spot', 'Foot Rot'],
+    typicalYieldQuintalPerAcre: 8,
+    stageDays: { sowing: 0, vegetative: 25, flowering: 55, fruiting: 80, maturity: 110 },
+    aliases: ['nachni', 'nagli', 'mandua', 'kezhvaragu', 'kelvaragu', 'ragulu', 'finger millet', 'eleusine'],
+    diseaseWindows: [
+      {
+        disease: 'Blast',
+        fromDay: 25,
+        toDay: 95,
+        favours: { minHumidity: 90, minTempC: 15, maxTempC: 26, needsLeafWetness: true },
+        conditionsSource: 'estimated',
+        timingSource: 'estimated',
+        lookFor: 'Spindle-shaped grey spots on the leaves; the neck of the ear turns black and breaks',
+      },
+    ],
+  },
 };
+
+/**
+ * Every crop and disease window reads its farmer-facing text from the locale
+ * files, so the same object speaks whichever language is active. The English
+ * strings above stay as the reviewed source and the fallback; identity
+ * (`key`, `disease`, pest names) stays English everywhere.
+ */
+for (const profile of Object.values(CROPS)) {
+  const english = profile.label.toLowerCase();
+  // The English name keeps working in search whatever the app language is.
+  if (!profile.aliases.includes(english)) profile.aliases.push(english);
+  const label = profile.label;
+  Object.defineProperty(profile, 'label', {
+    get: () => tr(`crops.${profile.key}`, { defaultValue: label }),
+    enumerable: true,
+  });
+  for (const w of profile.diseaseWindows) {
+    const base = `agro.${profile.key}.${slug(w.disease)}`;
+    const look = w.lookFor;
+    Object.defineProperty(w, 'lookFor', {
+      get: () => tr(`${base}.lookFor`, { defaultValue: look }),
+      enumerable: true,
+    });
+    if (w.alsoNeeds) {
+      const also = w.alsoNeeds;
+      Object.defineProperty(w, 'alsoNeeds', {
+        get: () => tr(`${base}.alsoNeeds`, { defaultValue: also }),
+        enumerable: true,
+      });
+    }
+  }
+}
 
 export const DEFAULT_CROP = 'maize';
 
@@ -635,21 +1111,78 @@ export const COST_MODEL = {
 };
 
 export const DOMAIN_LABELS: Record<RiskDomain, string> = {
-  cropHealth: 'Crop Health',
-  pest: 'Pest',
-  nutrient: 'Nutrient',
-  irrigation: 'Irrigation',
-  climate: 'Climate Risk',
+  get cropHealth() {
+    return tr('domains.cropHealth');
+  },
+  get pest() {
+    return tr('domains.pest');
+  },
+  get nutrient() {
+    return tr('domains.nutrient');
+  },
+  get irrigation() {
+    return tr('domains.irrigation');
+  },
+  get climate() {
+    return tr('domains.climate');
+  },
 };
 
 /** Biopesticide / input suggestions kept separate from logic for easy agronomist review. */
 export const INPUT_SUGGESTIONS: Record<string, string> = {
-  pest: 'Neem-based biopesticide (azadirachtin 1500 ppm) @ 2.5 ml/L',
-  disease: 'Copper oxychloride 50% WP @ 2 g/L',
-  nitrogen: 'Top-dress urea @ 25 kg/acre, split in two doses',
-  phosphorus: 'Single super phosphate @ 40 kg/acre',
-  potassium: 'Muriate of potash @ 20 kg/acre',
-  ph_low: 'Apply agricultural lime @ 200 kg/acre and re-test in 3 weeks',
-  ph_high: 'Apply gypsum @ 150 kg/acre; avoid alkaline irrigation water',
-  ec_high: 'Leach with good-quality water; pause fertigation for one cycle',
+  get pest() {
+    return tr('inputs.pest');
+  },
+  get disease() {
+    return tr('inputs.disease');
+  },
+  get nitrogen() {
+    return tr('inputs.nitrogen');
+  },
+  get phosphorus() {
+    return tr('inputs.phosphorus');
+  },
+  get potassium() {
+    return tr('inputs.potassium');
+  },
+  get ph_low() {
+    return tr('inputs.ph_low');
+  },
+  get ph_high() {
+    return tr('inputs.ph_high');
+  },
+  get ec_high() {
+    return tr('inputs.ec_high');
+  },
 };
+
+/**
+ * How each crop is spelled in the data.gov.in mandi feed ("Paddy(Dhan)(Common)",
+ * "Arhar (Tur/Red Gram)(Whole)"...). Matched as lower-case substrings, never
+ * against the translated crop label, so the price lookup works in every language.
+ */
+export const MARKET_MATCH: Record<string, string[]> = {
+  rice: ['paddy', 'rice'],
+  wheat: ['wheat'],
+  maize: ['maize'],
+  cotton: ['cotton', 'kapas'],
+  tomato: ['tomato'],
+  sugarcane: ['sugarcane'],
+  groundnut: ['groundnut'],
+  soybean: ['soyabean', 'soybean'],
+  chickpea: ['bengal gram', 'kabuli chana'],
+  tur: ['arhar', 'tur'],
+  moong: ['green gram', 'moong'],
+  mustard: ['mustard'],
+  onion: ['onion'],
+  potato: ['potato'],
+  chilli: ['chilli', 'chillies'],
+  banana: ['banana'],
+  bajra: ['bajra', 'pearl millet'],
+  ragi: ['ragi', 'finger millet'],
+};
+
+export function marketMatches(cropKey: string, commodity: string): boolean {
+  const c = commodity.toLowerCase();
+  return (MARKET_MATCH[cropKey] ?? [cropKey]).some((m) => c.includes(m));
+}

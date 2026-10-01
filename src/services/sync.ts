@@ -1,19 +1,25 @@
 import {
+  addDoc,
   collection,
+  deleteDoc,
   doc,
+  getDoc,
+  getDocs,
   limit as fsLimit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 
-import { db } from '../config/firebase';
+import { currentUid, db, ensureSignedIn } from '../config/firebase';
 import { hasFirebase } from '../config/env';
 import { drainOutboxKind } from './offline';
-import { OutboxItem } from '../types';
+import { DroneBooking, OutboxItem } from '../types';
 
 /**
  * The farmer's own writes, and the live view of them.
@@ -134,7 +140,16 @@ export async function pushFarmerWrites(phone: string | null): Promise<PushResult
       'communityPost',
       batchWriter(
         (p, i) => doc(communityCol(), str(p.id, `p-${stamp}-${i}`)),
-        (p) => ({ ...p, author: phone }),
+        // Ownership is the Firebase uid, never the phone number: every user can
+        // read the community, and a phone number on a public post is exactly
+        // the personal data that must not leak. `likedByMe` is this phone's
+        // own state and stays here.
+        ({ likedByMe: _mine, ...p }) =>
+          // Firestore refuses `undefined` values outright, and an optional
+          // field (district, crop) is often absent.
+          Object.fromEntries(
+            Object.entries({ ...p, authorUid: currentUid() }).filter(([, v]) => v !== undefined),
+          ),
       ),
     ],
   ];
@@ -166,7 +181,7 @@ export async function pushFarmerWrites(phone: string | null): Promise<PushResult
  *
  * Going direct means the whole product runs on Firebase's free Spark plan.
  * Functions v2 and Secret Manager both require Blaze, which is a billing card
- * for a hackathon project that writes a few hundred documents a day.
+ * for a product that writes a few hundred documents a day per farm.
  *
  * The document shape, the path and the id are deliberately identical to
  * functions/index.js. Both writers must produce the same thing, or data that
@@ -341,4 +356,176 @@ export async function pushPlots(phone: string | null, plots: unknown[]): Promise
   } catch {
     return false;
   }
+}
+
+/* ------------------------------------------------------------ moderation */
+
+/** A farmer flags a post. Moderators (accounts in `experts/`) review them. */
+export async function reportPost(postId: string, reason: string): Promise<boolean> {
+  if (!syncAvailable()) return false;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    await addDoc(collection(db, 'reports'), { postId, reason, reporterUid: uid, at: Date.now() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Is this phone signed in as a moderator / agriculture expert? */
+export async function amIExpert(): Promise<boolean> {
+  if (!syncAvailable()) return false;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    return (await getDoc(doc(db, 'experts', uid))).exists();
+  } catch {
+    return false;
+  }
+}
+
+export async function hidePost(postId: string): Promise<boolean> {
+  try {
+    await updateDoc(doc(communityCol(), postId), { hidden: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* --------------------------------------------------------- drone bookings */
+
+const bookingsCol = () => collection(db, 'bookings');
+
+/**
+ * Ask for a drone. The farmer's phone number goes into a private sub-document
+ * that only the farmer and the operator who accepts can read, so browsing open
+ * jobs never hands out numbers.
+ */
+export async function createBooking(b: DroneBooking, phone: string | null): Promise<boolean> {
+  if (!syncAvailable()) return false;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    const { contactPhone: _c, ...pub } = { ...b, farmerUid: uid };
+    await setDoc(doc(bookingsCol(), b.id), pub);
+    if (phone) await setDoc(doc(bookingsCol(), b.id, 'private', 'contact'), { phone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function watchBookingsWhere(field: string, value: string, onChange: (rows: DroneBooking[]) => void): Unsubscribe {
+  if (!syncAvailable() || !value) return noop;
+  try {
+    // No orderBy: a where + orderBy pair needs a composite index; sorting a
+    // district's worth of jobs on the phone is free.
+    return onSnapshot(
+      query(bookingsCol(), where(field, '==', value), fsLimit(100)),
+      (snap) =>
+        onChange(
+          snap.docs
+            .map((d) => ({ ...(d.data() as DroneBooking), id: d.id }))
+            .sort((a, b) => b.at - a.at),
+        ),
+      () => {},
+    );
+  } catch {
+    return noop;
+  }
+}
+
+export const watchDistrictBookings = (district: string, cb: (rows: DroneBooking[]) => void) =>
+  watchBookingsWhere('district', district, cb);
+export const watchMyBookings = (uid: string, cb: (rows: DroneBooking[]) => void) =>
+  watchBookingsWhere('farmerUid', uid, cb);
+export const watchMyJobs = (uid: string, cb: (rows: DroneBooking[]) => void) =>
+  watchBookingsWhere('operatorUid', uid, cb);
+
+export async function acceptBooking(id: string, operatorName: string, operatorPhone: string | null): Promise<boolean> {
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  try {
+    await updateDoc(doc(bookingsCol(), id), {
+      status: 'accepted',
+      operatorUid: uid,
+      operatorName,
+      operatorPhone: operatorPhone ?? '',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setBookingStatus(id: string, status: DroneBooking['status']): Promise<boolean> {
+  try {
+    await updateDoc(
+      doc(bookingsCol(), id),
+      status === 'open' ? { status, operatorUid: '', operatorName: '', operatorPhone: '' } : { status },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The farmer's number, for the operator who accepted (or the farmer). */
+export async function bookingContact(id: string): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(bookingsCol(), id, 'private', 'contact'));
+    return snap.exists() ? String(snap.data().phone ?? '') || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/* --------------------------------------------------------- your data (DPDP) */
+
+/**
+ * Erase everything this farmer has in the cloud: their account, alerts,
+ * missions, feedback, community posts and drone bookings. Sensor readings are
+ * stored by field id, not by person, and are not part of it.
+ *
+ * Returns false if anything could not be removed, so the screen can say so
+ * instead of claiming a deletion that did not happen.
+ */
+export async function deleteMyCloudData(phone: string | null): Promise<boolean> {
+  if (!syncAvailable()) return true;
+  const uid = await ensureSignedIn();
+  if (!uid) return false;
+  let ok = true;
+  const wipe = async (q: ReturnType<typeof query> | ReturnType<typeof collection>) => {
+    try {
+      const snap = await getDocs(q);
+      for (const d of snap.docs) await deleteDoc(d.ref);
+    } catch {
+      ok = false;
+    }
+  };
+  if (phone) {
+    for (const sub of ['alerts', 'missions', 'feedback']) await wipe(userCol(phone, sub));
+  }
+  await wipe(query(communityCol(), where('authorUid', '==', uid)));
+  try {
+    const mine = await getDocs(query(bookingsCol(), where('farmerUid', '==', uid)));
+    for (const d of mine.docs) {
+      // The private contact document first; deleting a parent leaves its
+      // sub-documents behind in Firestore.
+      await deleteDoc(doc(d.ref, 'private', 'contact')).catch(() => undefined);
+      await deleteDoc(d.ref);
+    }
+  } catch {
+    ok = false;
+  }
+  if (phone) {
+    try {
+      await deleteDoc(userDoc(phone));
+    } catch {
+      ok = false;
+    }
+  }
+  return ok;
 }

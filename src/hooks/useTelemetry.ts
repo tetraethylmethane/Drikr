@@ -4,6 +4,7 @@ import { assessPlot, PlotAssessment } from '../services/decisionEngine';
 import { generateAlerts } from '../services/alertEngine';
 import { buildHealthMap } from '../services/healthMap';
 import { notifyAlert } from '../services/notifications';
+import { smsAlerts } from '../services/smsAlerts';
 import { cacheGet, cacheSet, isOnline } from '../services/offline';
 import {
   buildSnapshot,
@@ -40,6 +41,8 @@ import { useCourier } from './useCourier';
 const WEATHER_TTL_MS = 30 * 60_000;
 const CONNECTIVITY_CHECK_MS = 60_000;
 
+const EMPTY: string[] = [];
+
 export function useTelemetryEngine() {
   const dispatch = useAppDispatch();
   const { plots, nodes, selectedPlotId } = useAppSelector((s) => s.farm);
@@ -48,6 +51,7 @@ export function useTelemetryEngine() {
   const forecast = useAppSelector((s) => s.telemetry.forecast);
   const { refreshSeconds, confidenceThreshold, mutedDomains, notificationsEnabled } =
     useAppSelector((s) => s.settings);
+  const smsNumbers = useAppSelector((s) => s.settings.smsNumbers) ?? EMPTY;
 
   const plot = useMemo(
     () => plots.find((p) => p.id === selectedPlotId) ?? plots[0] ?? null,
@@ -68,6 +72,7 @@ export function useTelemetryEngine() {
     confidenceThreshold,
     mutedDomains,
     notificationsEnabled,
+    smsNumbers,
     nodes,
     forecast,
   });
@@ -77,6 +82,7 @@ export function useTelemetryEngine() {
     confidenceThreshold,
     mutedDomains,
     notificationsEnabled,
+    smsNumbers,
     nodes,
     forecast,
   };
@@ -128,6 +134,9 @@ export function useTelemetryEngine() {
 
       if (fresh.length > 0) {
         dispatch(addAlerts(fresh));
+        // SMS goes out whether or not app notifications are on: it is for
+        // other people's phones. `fresh` is already deduped by the engine.
+        smsAlerts(fresh, stateRef.current.smsNumbers);
         if (stateRef.current.notificationsEnabled) {
           const seen = new Set(stateRef.current.notified);
           const toNotify = fresh.filter((a) => !seen.has(a.id));

@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Polygon, Text as SvgText } from 'react-native-svg';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
-import { checkGeoref, MIN_ANCHOR_SEPARATION_M } from '../services/geo';
+import { checkGeoref } from '../services/geo';
 import { usePlotState } from '../hooks/useTelemetry';
 import { updatePlot } from '../store/slices/farmSlice';
 import { useAppDispatch } from '../store/hooks';
@@ -52,7 +52,10 @@ export default function FieldLocationScreen() {
   const { t } = useTranslation();
   const { plot } = usePlotState();
 
-  const [method, setMethod] = useState<Method | null>(null);
+  // Walking is the default and needs no choice: it works with no signal and
+  // asks the farmer to recognise nothing. The map is one tap away for those at
+  // home on WiFi.
+  const [method, setMethod] = useState<Method>('walk');
 
   // Draft anchors keyed by the boundary vertex they belong to, so a farmer can
   // redo one fix without losing the other.
@@ -162,39 +165,34 @@ export default function FieldLocationScreen() {
 
       <Card>
         <Text style={s.lead}>{t('fieldLoc.lead')}</Text>
-        <Text style={s.muted}>{t('fieldLoc.why', { metres: MIN_ANCHOR_SEPARATION_M })}</Text>
+        {(method === 'walk'
+          ? [t('fieldLoc.walk1'), t('fieldLoc.walk2'), t('fieldLoc.walk3'), t('fieldLoc.walk4')]
+          : [t('fieldLoc.map1'), t('fieldLoc.map2'), t('fieldLoc.map3')]
+        ).map((line, i) => (
+          <View key={i} style={s.stepRow}>
+            <View style={s.stepNum}>
+              <Text style={s.stepNumText}>{i + 1}</Text>
+            </View>
+            <Text style={s.stepText}>{line}</Text>
+          </View>
+        ))}
+        {mapReady ? (
+          <Button
+            title={method === 'walk' ? t('fieldLoc.useMapInstead') : t('fieldLoc.walkInstead')}
+            icon={method === 'walk' ? 'map' : 'walk'}
+            variant="ghost"
+            size="sm"
+            onPress={() => {
+              setMethod(method === 'walk' ? 'map' : 'walk');
+              setSelected(null);
+            }}
+            style={{ marginTop: spacing.sm }}
+          />
+        ) : null}
       </Card>
 
-      {/* Method choice, with the trade-offs stated rather than one silently
-          chosen for them. Neither method is better in general. */}
-      {method == null ? (
+      <>
         <>
-          <SectionTitle title={t('fieldLoc.chooseMethod')} icon="options" />
-          <MethodCard
-            icon="walk"
-            title={t('fieldLoc.walkTitle')}
-            pros={[t('fieldLoc.walkPro1'), t('fieldLoc.walkPro2'), t('fieldLoc.walkPro3')]}
-            cons={[t('fieldLoc.walkCon1')]}
-            onPress={() => setMethod('walk')}
-          />
-          <MethodCard
-            icon="map"
-            title={t('fieldLoc.mapTitle')}
-            pros={[t('fieldLoc.mapPro1'), t('fieldLoc.mapPro2')]}
-            cons={[t('fieldLoc.mapCon1'), t('fieldLoc.mapCon2'), t('fieldLoc.mapCon3')]}
-            onPress={() => setMethod('map')}
-            disabledNote={mapReady ? undefined : t('fieldLoc.mapNeedsBuild')}
-          />
-        </>
-      ) : (
-        <>
-          <SectionTitle
-            title={method === 'walk' ? t('fieldLoc.walkTitle') : t('fieldLoc.mapTitle')}
-            icon={method === 'walk' ? 'walk' : 'map'}
-            action={t('fieldLoc.change')}
-            onAction={() => setMethod(null)}
-          />
-
           {/* Step 1 of both flows: which corner are we placing? */}
           <Card>
             <View style={s.canvasWrap}>
@@ -288,7 +286,7 @@ export default function FieldLocationScreen() {
           {/* Result */}
           {pair.length > 0 ? (
             <>
-              <SectionTitle title={t('fieldLoc.fixesTaken')} icon="pin" />
+              <SectionTitle title={t('fieldLoc.fixesTaken')} icon="checkmark-done" />
               <Card>
                 {pair.map(({ vertex, anchor }, i) => (
                   <View key={vertex} style={s.fixRow}>
@@ -296,13 +294,10 @@ export default function FieldLocationScreen() {
                       <Text style={s.fixBadgeText}>{i + 1}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.fixCoord}>
-                        {anchor.lat.toFixed(6)}, {anchor.lon.toFixed(6)}
-                      </Text>
-                      <Text style={s.muted}>
-                        {t('fieldLoc.corner')} {vertex + 1}
-                        {anchor.accuracyM != null ? ` · ±${Math.round(anchor.accuracyM)} m` : ''}
-                      </Text>
+                      <Text style={s.fixCoord}>{t('fieldLoc.cornerMarked', { corner: vertex + 1 })}</Text>
+                      {anchor.accuracyM != null ? (
+                        <Text style={s.muted}>{t('fieldLoc.accurateTo', { m: Math.round(anchor.accuracyM) })}</Text>
+                      ) : null}
                     </View>
                   </View>
                 ))}
@@ -317,9 +312,8 @@ export default function FieldLocationScreen() {
                         : ''}
                     </Text>
 
-                    {/* Problems block the save. A wrong georeference is worse
-                        than none: none of it stops a flight, wrong sends the
-                        aircraft somewhere confident and incorrect. */}
+                    {/* Only a truly unusable pair (both corners the same spot)
+                        blocks the save; everything else is advice. */}
                     {check.problems.map((p, i) => (
                       <View key={`p${i}`} style={s.errorRow}>
                         <Ionicons name="close-circle" size={15} color={colors.danger} />
@@ -355,51 +349,8 @@ export default function FieldLocationScreen() {
             </>
           ) : null}
         </>
-      )}
+      </>
     </Screen>
-  );
-}
-
-function MethodCard({
-  icon,
-  title,
-  pros,
-  cons,
-  onPress,
-  disabledNote,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  pros: string[];
-  cons: string[];
-  onPress: () => void;
-  disabledNote?: string;
-}) {
-  return (
-    <Card onPress={disabledNote ? undefined : onPress} tone={disabledNote ? undefined : 'info'}>
-      <View style={s.methodTop}>
-        <Ionicons name={icon} size={20} color={disabledNote ? colors.textFaint : colors.info} />
-        <Text style={[s.methodTitle, disabledNote ? { color: colors.textMuted } : null]}>
-          {title}
-        </Text>
-        {!disabledNote ? (
-          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-        ) : null}
-      </View>
-      {pros.map((p, i) => (
-        <View key={`p${i}`} style={s.reasonRow}>
-          <Ionicons name="checkmark" size={13} color={colors.ok} />
-          <Text style={s.reasonText}>{p}</Text>
-        </View>
-      ))}
-      {cons.map((c, i) => (
-        <View key={`c${i}`} style={s.reasonRow}>
-          <Ionicons name="remove" size={13} color={colors.warn} />
-          <Text style={s.reasonText}>{c}</Text>
-        </View>
-      ))}
-      {disabledNote ? <Text style={s.disabledNote}>{disabledNote}</Text> : null}
-    </Card>
   );
 }
 
@@ -409,21 +360,17 @@ const s = StyleSheet.create({
   canvasWrap: { alignItems: 'center', paddingVertical: spacing.sm },
   instruction: { ...typography.bodyStrong, color: colors.text, lineHeight: 20 },
   hint: { ...typography.tiny, color: colors.textFaint, marginTop: spacing.md, lineHeight: 16 },
-  methodTop: {
-    flexDirection: 'row',
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.sm },
+  stepNum: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.infoBg,
     alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
+    justifyContent: 'center',
   },
-  methodTitle: { ...typography.h3, color: colors.text, flex: 1 },
-  reasonRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: 3 },
-  reasonText: { ...typography.small, color: colors.textMuted, flex: 1, lineHeight: 18 },
-  disabledNote: {
-    ...typography.tiny,
-    color: colors.warn,
-    marginTop: spacing.md,
-    lineHeight: 16,
-  },
+  stepNumText: { fontSize: 12, fontWeight: '700', color: colors.info },
+  stepText: { ...typography.small, color: colors.text, flex: 1, lineHeight: 20 },
   errorRow: {
     flexDirection: 'row',
     gap: spacing.sm,

@@ -50,6 +50,13 @@ service cloud.firestore {
       return id.matches('^\\+[1-9][0-9]{7,14}$');
     }
 
+    // Moderators: agriculture experts the team adds by hand in the console
+    // (experts/{uid}). Not self-service, so nobody can make themselves one.
+    function isExpert() {
+      return signedIn()
+             && exists(/databases/$(database)/documents/experts/$(request.auth.uid));
+    }
+
     function account(phone) {
       return get(/databases/$(database)/documents/users/$(phone)).data;
     }
@@ -93,7 +100,9 @@ service cloud.firestore {
                     && request.resource.data.phoneNumber == resource.data.phoneNumber
                     && request.resource.data.pinHash == resource.data.pinHash;
 
-      allow delete: if false;
+      // The farmer can erase their own account (DPDP right to erasure). The
+      // app deletes the sub-collections first.
+      allow delete: if ownsAccount(phone);
 
       // --- the farmer's own records, written by src/services/sync.ts --------
 
@@ -114,7 +123,9 @@ service cloud.firestore {
       match /feedback/{docId} {
         allow read: if ownsAccount(phone);
         allow create: if ownsAccount(phone);
-        allow update, delete: if false;
+        allow update: if false;
+        // Still never edited - but the farmer may erase it with their account.
+        allow delete: if ownsAccount(phone);
       }
     }
 
@@ -155,25 +166,108 @@ service cloud.firestore {
 
     // ------------------------------------------------------------ community
     //
-    // Shared by design — that is the point of it. A post carries its author,
-    // and the rules require that author to be the caller's own phone number,
-    // so nobody can post as somebody else.
+    // Shared by design. Ownership is the Firebase uid (`authorUid`), not the
+    // phone number: every signed-in user can read the community, and a phone
+    // number on a public post would publish personal data. Replies are posts
+    // of their own with `replyTo` set.
+    //
+    // Posts written by the old app version carry `author` = phone and no
+    // `authorUid`; the app no longer shows them, and only a moderator can
+    // remove them.
     match /community/{postId} {
       allow read: if signedIn();
 
       allow create: if signedIn()
-                    && request.resource.data.keys().hasAll(['author', 'text'])
+                    && request.resource.data.authorUid == request.auth.uid
+                    && request.resource.data.author is string
+                    && request.resource.data.author.size() <= 60
                     && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
                     && request.resource.data.text.size() <= 2000
-                    && ownsAccount(request.resource.data.author);
+                    && request.resource.data.get('hidden', false) == false
+                    && (request.resource.data.get('expert', false) == false || isExpert());
 
-      // Only the author may edit or remove their own post, and they may not
-      // hand it to somebody else.
-      allow update: if signedIn()
-                    && ownsAccount(resource.data.author)
-                    && request.resource.data.author == resource.data.author;
+      allow update: if signedIn() && (
+                      // The author edits their own post, but cannot hand it
+                      // to someone else, unhide it, or claim expert status.
+                      (resource.data.get('authorUid', '') == request.auth.uid
+                        && request.resource.data.authorUid == resource.data.authorUid
+                        && request.resource.data.get('hidden', false) == resource.data.get('hidden', false)
+                        && (request.resource.data.get('expert', false) == false || isExpert()))
+                      // A moderator hides a post, and touches nothing else.
+                      || (isExpert()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hidden']))
+                    );
 
-      allow delete: if signedIn() && ownsAccount(resource.data.author);
+      allow delete: if signedIn()
+                    && (resource.data.get('authorUid', '') == request.auth.uid || isExpert());
+    }
+
+    match /experts/{uid} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Reports on posts: anyone can file one, only moderators read them.
+    match /reports/{reportId} {
+      allow create: if signedIn()
+                    && request.resource.data.reporterUid == request.auth.uid
+                    && request.resource.data.postId is string
+                    && request.resource.data.reason is string
+                    && request.resource.data.reason.size() <= 500;
+      allow read, delete: if isExpert();
+      allow update: if false;
+    }
+
+    // -------------------------------------------------------- drone bookings
+    //
+    // A farmer asks for a drone; an operator in the same district takes the
+    // job. The farmer's phone number lives in private/contact, readable only
+    // by the farmer and the operator who accepted - never by someone browsing
+    // open jobs.
+    function booking(id) {
+      return get(/databases/$(database)/documents/bookings/$(id)).data;
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+                    && request.resource.data.farmerUid == request.auth.uid
+                    && request.resource.data.status == 'open'
+                    && request.resource.data.district is string
+                    && request.resource.data.acres is number
+                    && request.resource.data.acres > 0
+                    && request.resource.data.acres < 1000
+                    && !('contactPhone' in request.resource.data);
+
+      allow update: if signedIn() && (
+                      // The farmer: cancel or edit their own request.
+                      (resource.data.farmerUid == request.auth.uid
+                        && request.resource.data.farmerUid == resource.data.farmerUid
+                        && !('contactPhone' in request.resource.data))
+                      // An operator takes an open job.
+                      || (resource.data.status == 'open'
+                        && request.resource.data.status == 'accepted'
+                        && request.resource.data.operatorUid == request.auth.uid
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['status', 'operatorUid', 'operatorName', 'operatorPhone']))
+                      // The operator finishes it, or gives it back.
+                      || (resource.data.status == 'accepted'
+                        && resource.data.operatorUid == request.auth.uid
+                        && request.resource.data.status in ['done', 'open']
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['status', 'operatorUid', 'operatorName', 'operatorPhone']))
+                    );
+
+      allow delete: if signedIn() && resource.data.farmerUid == request.auth.uid;
+
+      match /private/{docId} {
+        allow read: if signedIn()
+                    && (booking(bookingId).farmerUid == request.auth.uid
+                        || booking(bookingId).get('operatorUid', '') == request.auth.uid);
+        allow write: if signedIn() && booking(bookingId).farmerUid == request.auth.uid;
+      }
     }
 
     // -------------------------------------------------------------- default

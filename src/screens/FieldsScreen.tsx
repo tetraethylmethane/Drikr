@@ -12,6 +12,8 @@ import { colors, healthColor, radii, spacing, spacing as sp, typography } from '
 import { Plot } from '../types';
 import { AppHeader, Badge, Button, Card, EmptyState, Screen } from '../components/ui';
 import { FieldHealthCanvas, riskTone } from '../components/domain';
+import { stageName } from '../i18n/tr';
+import { currentStage } from '../config/agronomy';
 
 /**
  * All fields at a glance.
@@ -123,11 +125,9 @@ export default function FieldsScreen() {
                   </View>
 
                   <Text style={s.plotMeta}>
-                    {crop.label} · {plot.areaAcres} {t('fields.acre')} · {plot.stage}
+                    {crop.label} · {plot.areaAcres} {t('fields.acre')}
                   </Text>
-                  <Text style={s.plotMetaFaint}>
-                    {t('fields.day')} {das} · {plot.soilType} · {plot.irrigationType}
-                  </Text>
+                  <Text style={s.plotMetaFaint}>{t('fields.sownAgo', { days: das, stage: stageName(currentStage(plot)) })}</Text>
 
                   <View style={s.statsRow}>
                     {snap ? (
@@ -150,20 +150,24 @@ export default function FieldsScreen() {
                         />
                       </>
                     ) : (
-                      <Text style={s.plotMetaFaint}>{t('fields.connecting')}</Text>
+                      <Text style={s.plotMetaFaint}>
+                        {plotNodes.length === 0 ? t('fields.noSensors') : t('fields.connecting')}
+                      </Text>
                     )}
                     {alertCount > 0 ? (
                       <Badge label={`${alertCount}`} tone="danger" icon="warning" />
                     ) : null}
                   </View>
 
-                  <View style={s.nodeRow}>
-                    <Ionicons name="hardware-chip-outline" size={12} color={colors.textFaint} />
-                    <Text style={s.nodeText}>
-                      {plotNodes.filter((n) => n.status === 'online').length}/{plotNodes.length}{' '}
-                      {t('fields.nodesOnline')}
-                    </Text>
-                  </View>
+                  {plotNodes.length > 0 ? (
+                    <View style={s.nodeRow}>
+                      <Ionicons name="hardware-chip-outline" size={12} color={colors.textFaint} />
+                      <Text style={s.nodeText}>
+                        {plotNodes.filter((n) => n.status === 'online').length}/{plotNodes.length}{' '}
+                        {t('fields.nodesOnline')}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             </Card>

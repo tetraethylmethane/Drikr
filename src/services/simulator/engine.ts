@@ -74,7 +74,7 @@ export const DEFAULT_SIM_PROFILE: SimProfile = {
   pestPressure: 0.72,
   moistureBias: -0.18,
   nutrientBias: -0.22,
-  seed: 'drikr-h043',
+  seed: 'drikr-demo',
 };
 
 /**

@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+// Order on this screen: photo, what it shows, what to do. The sensor detail
+// and the farmer's own note are real and kept, under "More detail".
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -19,6 +21,7 @@ import { RiskDomain } from '../types';
 import { StatusTone } from '../theme';
 import { AppHeader, Badge, Button, Card, ConfidenceBar, Screen, SectionTitle } from '../components/ui';
 import { DriverList, RecommendationList, riskTone } from '../components/domain';
+import { nameOf } from '../i18n/tr';
 
 /**
  * Field scouting for disease and pest — one screen, two entry points.
@@ -66,6 +69,7 @@ export default function ScoutScreen() {
   // the farmer needs to tell apart: one means take a photo, the other means the
   // model could not be reached.
   const [diagnoseFailed, setDiagnoseFailed] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   const risk = useMemo(
     () => assessment?.risks.find((r) => r.domain === domain) ?? null,
@@ -156,66 +160,6 @@ export default function ScoutScreen() {
         onBack={() => navigation.goBack()}
       />
 
-      {/* Sensor-based risk — the part that is genuinely computed */}
-      {risk ? (
-        <>
-          <SectionTitle title={t('scout.sensorAssessment')} icon="pulse" />
-          <Card>
-            <View style={s.riskTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.riskTitle}>{risk.title}</Text>
-                <Text style={s.riskDetail}>{risk.detail}</Text>
-              </View>
-              <Badge label={`${risk.score}/100`} tone={riskTone(risk.level)} />
-            </View>
-
-            <ConfidenceBar confidence={risk.confidence} threshold={confidenceThreshold} />
-
-            <View style={s.driversBlock}>
-              <DriverList drivers={risk.drivers} />
-            </View>
-
-            <Button
-              title={t('alerts.readAloud')}
-              icon="volume-medium"
-              variant="secondary"
-              size="sm"
-              onPress={() => speak(`${risk.title}. ${risk.detail}`)}
-              style={{ marginTop: spacing.md }}
-            />
-          </Card>
-        </>
-      ) : (
-        <Card>
-          <Text style={s.muted}>{t('home.waitingForSensors')}</Text>
-        </Card>
-      )}
-
-      {/* Likely candidates for this crop */}
-      {candidates.length > 0 ? (
-        <>
-          <SectionTitle
-            title={domain === 'pest' ? t('scout.likelyPests') : t('scout.likelyDiseases')}
-            icon="list"
-          />
-          <Card>
-            <Text style={s.muted}>{t('scout.candidatesHelp', { crop: crop?.label })}</Text>
-            <View style={s.candidates}>
-              {candidates.map((c) => (
-                <View key={c} style={s.candidate}>
-                  <Ionicons
-                    name={domain === 'pest' ? 'bug-outline' : 'leaf-outline'}
-                    size={14}
-                    color={colors.brandLight}
-                  />
-                  <Text style={s.candidateText}>{c}</Text>
-                </View>
-              ))}
-            </View>
-          </Card>
-        </>
-      ) : null}
-
       {/* Photo capture */}
       <SectionTitle title={t('scout.photograph')} icon="camera" />
       <Card>
@@ -292,7 +236,11 @@ export default function ScoutScreen() {
               ) : null}
             </View>
 
-            <ConfidenceBar confidence={diagnosis.confidence} threshold={confidenceThreshold} />
+            {diagnosis.label ? (
+              <Text style={s.sureLine}>
+                {diagnosis.confidence >= confidenceThreshold ? t('scout.fairlySure') : t('scout.notSure')}
+              </Text>
+            ) : null}
 
             {diagnosis.observed.length > 0 ? (
               <View style={s.driversBlock}>
@@ -349,6 +297,94 @@ export default function ScoutScreen() {
         </>
       ) : null}
 
+      {/* Treatment */}
+      {risk && risk.recommendations.length > 0 ? (
+        <>
+          <SectionTitle title={t('scout.treatment')} icon="medkit" />
+          <Card>
+            <RecommendationList recommendations={risk.recommendations} onSpeak={speak} />
+            <View style={s.inputBox}>
+              <Text style={s.inputBoxTitle}>{t('scout.suggestedInput')}</Text>
+              <Text style={s.inputBoxText}>
+                {domain === 'pest' ? INPUT_SUGGESTIONS.pest : INPUT_SUGGESTIONS.disease}
+              </Text>
+              <Text style={s.inputBoxNote}>{t('scout.safetyNote')}</Text>
+            </View>
+            {risk.recommendations.some((r) => r.droneEligible) ? (
+              <Button
+                title={t('alerts.scheduleDrone')}
+                icon="paper-plane"
+                onPress={scheduleDrone}
+                style={{ marginTop: spacing.lg }}
+              />
+            ) : null}
+          </Card>
+        </>
+      ) : null}
+
+      <Pressable style={s.moreToggle} onPress={() => setShowMore((v) => !v)}>
+        <Ionicons name={showMore ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brandLight} />
+        <Text style={s.moreToggleText}>{showMore ? t('scout.lessDetail') : t('scout.moreDetail')}</Text>
+      </Pressable>
+
+      {showMore ? (
+        <>
+      {/* Sensor-based risk — the part that is genuinely computed */}
+      {risk ? (
+        <>
+          <SectionTitle title={t('scout.sensorAssessment')} icon="pulse" />
+          <Card>
+            <View style={s.riskTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.riskTitle}>{risk.title}</Text>
+                <Text style={s.riskDetail}>{risk.detail}</Text>
+              </View>
+              <Badge label={`${risk.score}/100`} tone={riskTone(risk.level)} />
+            </View>
+
+            <ConfidenceBar confidence={risk.confidence} threshold={confidenceThreshold} />
+
+            <View style={s.driversBlock}>
+              <DriverList drivers={risk.drivers} />
+            </View>
+
+            <Button
+              title={t('alerts.readAloud')}
+              icon="volume-medium"
+              variant="secondary"
+              size="sm"
+              onPress={() => speak(`${risk.title}. ${risk.detail}`)}
+              style={{ marginTop: spacing.md }}
+            />
+          </Card>
+        </>
+      ) : null}
+
+      {/* Likely candidates for this crop */}
+      {candidates.length > 0 ? (
+        <>
+          <SectionTitle
+            title={domain === 'pest' ? t('scout.likelyPests') : t('scout.likelyDiseases')}
+            icon="list"
+          />
+          <Card>
+            <Text style={s.muted}>{t('scout.candidatesHelp', { crop: crop?.label })}</Text>
+            <View style={s.candidates}>
+              {candidates.map((c) => (
+                <View key={c} style={s.candidate}>
+                  <Ionicons
+                    name={domain === 'pest' ? 'bug-outline' : 'leaf-outline'}
+                    size={14}
+                    color={colors.brandLight}
+                  />
+                  <Text style={s.candidateText}>{nameOf(c)}</Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+        </>
+      ) : null}
+
       {/* Farmer's observation */}
       <SectionTitle title={t('scout.whatYouSee')} icon="create" />
       <Card>
@@ -382,28 +418,6 @@ export default function ScoutScreen() {
         <Text style={s.submitHelp}>{t('scout.submitHelp')}</Text>
       </Card>
 
-      {/* Treatment */}
-      {risk && risk.recommendations.length > 0 ? (
-        <>
-          <SectionTitle title={t('scout.treatment')} icon="medkit" />
-          <Card>
-            <RecommendationList recommendations={risk.recommendations} onSpeak={speak} />
-            <View style={s.inputBox}>
-              <Text style={s.inputBoxTitle}>{t('scout.suggestedInput')}</Text>
-              <Text style={s.inputBoxText}>
-                {domain === 'pest' ? INPUT_SUGGESTIONS.pest : INPUT_SUGGESTIONS.disease}
-              </Text>
-              <Text style={s.inputBoxNote}>{t('scout.safetyNote')}</Text>
-            </View>
-            {risk.recommendations.some((r) => r.droneEligible) ? (
-              <Button
-                title={t('alerts.scheduleDrone')}
-                icon="paper-plane"
-                onPress={scheduleDrone}
-                style={{ marginTop: spacing.lg }}
-              />
-            ) : null}
-          </Card>
         </>
       ) : null}
     </Screen>
@@ -426,6 +440,15 @@ function severityTone(severity: PhotoDiagnosis['severity']): StatusTone {
 }
 
 const s = StyleSheet.create({
+  moreToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  moreToggleText: { ...typography.small, color: colors.brandLight, fontWeight: '700' },
+  sureLine: { ...typography.small, color: colors.textMuted, marginBottom: spacing.sm, lineHeight: 19 },
   muted: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   riskTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.md },
   riskTitle: { ...typography.h3, color: colors.text },

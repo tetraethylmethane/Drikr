@@ -3,6 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { tr } from '../i18n/tr';
 import {
   ANALOG_CHANNELS,
   AnalogChannelKey,
@@ -480,7 +481,7 @@ function StepHeading({
         <Ionicons name={icon} size={18} color={colors.brand} />
       </View>
       <Text style={s.headingText}>{title}</Text>
-      <Pressable onPress={onSpeak} hitSlop={10} accessibilityLabel="Read aloud">
+      <Pressable onPress={onSpeak} hitSlop={10} accessibilityLabel={tr('alerts.readAloud')}>
         <Ionicons name="volume-medium-outline" size={19} color={colors.brandLight} />
       </Pressable>
     </View>

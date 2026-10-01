@@ -6,6 +6,7 @@ import {
 } from 'expo-speech-recognition';
 import { SPEECH_LOCALE } from './useLanguage';
 import { Language } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Voice input/output for the voice-first interface.
@@ -88,14 +89,14 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
     setListening(false);
     setPartial('');
     // "no-speech" is a normal outcome of a quiet field, not a fault worth shouting about.
-    setError(event.error === 'no-speech' ? 'Did not hear anything. Try again.' : 'Could not hear that. Try again.');
+    setError(event.error === 'no-speech' ? tr('voice.noSpeech') : tr('voice.couldNotHear'));
   });
 
   useSpeechRecognitionEvent('nomatch', () => {
     activeRef.current = false;
     setListening(false);
     setPartial('');
-    setError('Did not catch that. Try again.');
+    setError(tr('voice.noMatch'));
   });
 
   const startListening = useCallback(async () => {
@@ -105,7 +106,7 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
 
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!perm.granted) {
-        setError('Microphone permission is needed to ask by voice.');
+        setError(tr('voice.noPermission'));
         return;
       }
 
@@ -119,7 +120,7 @@ export function useVoice({ language, onResult }: UseVoiceOptions) {
       });
       setListening(true);
     } catch {
-      setError('Voice input is unavailable on this device.');
+      setError(tr('voice.unavailable'));
       setListening(false);
     }
   }, [language]);

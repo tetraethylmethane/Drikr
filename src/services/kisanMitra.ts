@@ -2,6 +2,8 @@ import { DOMAIN_LABELS, cropProfile } from '../config/agronomy';
 import env, { hasCloudAi } from '../config/env';
 import { ChatMessage, Language, Plot, PlotSnapshot, RiskDomain, WeatherForecast } from '../types';
 import { PlotAssessment } from './decisionEngine';
+import i18n from '../i18n/i18n';
+import { MODEL_LANGUAGE } from '../i18n/languages';
 
 /**
  * "Kisan Mitra" — the multilingual farming assistant.
@@ -25,11 +27,6 @@ export interface AssistantContext {
   language: Language;
 }
 
-const LANG_NAME: Record<Language, string> = {
-  en: 'English',
-  hi: 'Hindi (Devanagari script)',
-  ta: 'Tamil (Tamil script)',
-};
 
 /** Compact field state for the model prompt. */
 function groundingBlock(ctx: AssistantContext): string {
@@ -91,7 +88,7 @@ async function askGemini(question: string, ctx: AssistantContext): Promise<strin
           role: 'user',
           parts: [
             {
-              text: `Reply in ${LANG_NAME[ctx.language]}.\n\nFIELD DATA:\n${groundingBlock(ctx)}\n\nFARMER'S QUESTION:\n${question}`,
+              text: `Reply in ${MODEL_LANGUAGE[ctx.language]}.\n\nFIELD DATA:\n${groundingBlock(ctx)}\n\nFARMER'S QUESTION:\n${question}`,
             },
           ],
         },
@@ -121,7 +118,7 @@ async function askOpenAi(question: string, ctx: AssistantContext): Promise<strin
         { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `Reply in ${LANG_NAME[ctx.language]}.\n\nFIELD DATA:\n${groundingBlock(ctx)}\n\nFARMER'S QUESTION:\n${question}`,
+          content: `Reply in ${MODEL_LANGUAGE[ctx.language]}.\n\nFIELD DATA:\n${groundingBlock(ctx)}\n\nFARMER'S QUESTION:\n${question}`,
         },
       ],
     }),
@@ -137,19 +134,29 @@ async function askOpenAi(question: string, ctx: AssistantContext): Promise<strin
 
 type Intent = RiskDomain | 'health' | 'weather' | 'market' | 'drone' | 'sensors' | 'help';
 
-/** Keyword sets per intent, in all three supported languages. */
+/** Keyword sets per intent, across the supported languages. */
 const INTENT_KEYWORDS: Record<Intent, string[]> = {
-  irrigation: ['water', 'irrigat', 'moisture', 'dry', 'pani', 'सिंचाई', 'पानी', 'नमी', 'நீர்', 'பாசன'],
-  pest: ['pest', 'insect', 'worm', 'borer', 'armyworm', 'aphid', 'keeda', 'कीट', 'कीड़', 'பூச்சி'],
-  nutrient: ['fertil', 'nutrient', 'urea', 'npk', 'nitrogen', 'khad', 'खाद', 'उर्वरक', 'நைட்ரஜன்', 'உரம'],
-  cropHealth: ['disease', 'fungus', 'blight', 'rust', 'spot', 'rog', 'रोग', 'बीमारी', 'நோய்'],
-  climate: ['rain', 'storm', 'heat', 'frost', 'wind', 'barish', 'बारिश', 'मौसम', 'गर्मी', 'மழை', 'வானிலை'],
-  weather: ['weather', 'forecast', 'mausam', 'मौसम', 'வானிலை', 'temperature'],
+  irrigation: ['water', 'irrigat', 'moisture', 'dry', 'pani', 'सिंचाई', 'पानी', 'नमी', 'நீர்', 'பாசன',
+    'সেচ', 'জল', 'पाणी', 'सिंचन', 'నీరు', 'నీటిపారుదల', 'પાણી', 'સિંચાઈ', 'پانی', 'آبپاشی', 'ನೀರು', 'ನೀರಾವರಿ', 'ଜଳସେଚନ', 'ജലസേചന', 'വെള്ളം', 'ਪਾਣੀ', 'ਸਿੰਚਾਈ', 'জলসিঞ্চন', 'পানী'],
+  pest: ['pest', 'insect', 'worm', 'borer', 'armyworm', 'aphid', 'keeda', 'कीट', 'कीड़', 'பூச்சி',
+    'পোকা', 'কীট', 'कीड', 'పురుగు', 'જીવાત', 'کیڑ', 'ಕೀಟ', 'ପୋକ', 'കീട', 'ਕੀੜ', 'পোক'],
+  nutrient: ['fertil', 'nutrient', 'urea', 'npk', 'nitrogen', 'khad', 'खाद', 'उर्वरक', 'நைட்ரஜன்', 'உரம',
+    'সার', 'खत', 'ఎరువు', 'ખાતર', 'کھاد', 'ಗೊಬ್ಬರ', 'ସାର', 'വളം', 'ਖਾਦ', 'সাৰ'],
+  cropHealth: ['disease', 'fungus', 'blight', 'rust', 'spot', 'rog', 'रोग', 'बीमारी', 'நோய்',
+    'রোগ', 'తెగులు', 'వ్యాధి', 'રોગ', 'بیماری', 'ರೋಗ', 'ରୋଗ', 'രോഗ', 'ਰੋਗ', 'ਬਿਮਾਰੀ', 'ৰোগ'],
+  climate: ['rain', 'storm', 'heat', 'frost', 'wind', 'barish', 'बारिश', 'मौसम', 'गर्मी', 'மழை', 'வானிலை',
+    'বৃষ্টি', 'पाऊस', 'వర్షం', 'વરસાદ', 'بارش', 'ಮಳೆ', 'ବର୍ଷା', 'മഴ', 'ਮੀਂਹ', 'বৰষুণ'],
+  weather: ['weather', 'forecast', 'mausam', 'मौसम', 'வானிலை', 'temperature',
+    'আবহাওয়া', 'हवामान', 'వాతావరణ', 'હવામાન', 'موسم', 'ಹವಾಮಾನ', 'ପାଣିପାଗ', 'കാലാവസ്ഥ', 'ਮੌਸਮ', 'বতৰ'],
   health: ['health', 'condition', 'how is', 'status', 'सेहत', 'हालत', 'நிலை'],
-  market: ['price', 'mandi', 'market', 'sell', 'rate', 'भाव', 'मंडी', 'कीमत', 'விலை', 'சந்தை'],
-  drone: ['drone', 'spray', 'ड्रोन', 'छिड़काव', 'ட்ரோன்', 'தெளி'],
-  sensors: ['sensor', 'node', 'battery', 'device', 'सेंसर', 'बैटरी', 'சென்சார்'],
-  help: ['help', 'what can you', 'madad', 'मदद', 'உதவி'],
+  market: ['price', 'mandi', 'market', 'sell', 'rate', 'भाव', 'मंडी', 'कीमत', 'விலை', 'சந்தை',
+    'দাম', 'বাজার', 'बाजार', 'ధర', 'మార్కెట్', 'ભાવ', 'બજાર', 'قیمت', 'منڈی', 'ಬೆಲೆ', 'ಮಾರುಕಟ್ಟೆ', 'ଦାମ', 'ବଜାର', 'വില', 'ചന്ത', 'ਭਾਅ', 'ਮੰਡੀ', 'বজাৰ'],
+  drone: ['drone', 'spray', 'ड्रोन', 'छिड़काव', 'ட்ரோன்', 'தெளி',
+    'ড্রোন', 'డ్రోన్', 'ડ્રોન', 'ڈرون', 'ಡ್ರೋನ್', 'ଡ୍ରୋନ', 'ഡ്രോൺ', 'ਡਰੋਨ', 'ড্ৰোন'],
+  sensors: ['sensor', 'node', 'battery', 'device', 'सेंसर', 'बैटरी', 'சென்சார்',
+    'সেন্সর', 'सेन्सर', 'సెన్సార్', 'સેન્સર', 'سینسر', 'ಸೆನ್ಸರ್', 'ସେନ୍ସର', 'സെൻസർ', 'ਸੈਂਸਰ', 'চেন্সৰ'],
+  help: ['help', 'what can you', 'madad', 'मदद', 'உதவி',
+    'সাহায্য', 'मदत', 'సహాయ', 'મદદ', 'مدد', 'ಸಹಾಯ', 'ସାହାଯ୍ୟ', 'സഹായ', 'ਮਦਦ', 'সহায়'],
 };
 
 function detectIntent(q: string): Intent {
@@ -166,80 +173,25 @@ function detectIntent(q: string): Intent {
   return bestHits === 0 ? 'health' : best;
 }
 
-/** Phrasing for offline answers. Kept as templates so all three languages stay in step. */
-const T: Record<Language, Record<string, string>> = {
-  en: {
-    noData: 'No field data yet. Add a plot and let the sensors report, then ask me again.',
-    healthLead: '{plot} health is {index}/100 ({risk}).',
-    topRisk: 'Main concern: {title} — {detail}',
-    allClear: 'No significant risk right now. Keep to your routine schedule.',
-    actions: 'What to do:',
-    within: 'within {h}h',
-    sensorsLine: 'Sensors: {online}/{total} nodes reporting, soil moisture {sm}%, N {n} ppm, pest pressure {pest}/100.',
-    weatherLine: 'Today {min}-{max}°C, {rain} mm rain ({prob}% chance), wind to {wind} km/h.',
-    noWeather: 'Weather forecast is unavailable offline. It will refresh when you are back online.',
-    marketLine: 'Open the Market tab for live mandi prices from data.gov.in — it needs a connection.',
-    droneLine: 'Drone: {status}. Tap Drone to review and confirm a mission.',
-    droneNone: 'No drone mission is pending. One will be proposed if a spray is needed.',
-    help: 'Ask me about irrigation, fertiliser, pests, disease, weather risk, your sensors, or mandi prices. I work offline using your live field data.',
-    offlineNote: 'Answered on-device from your sensor data.',
-  },
-  hi: {
-    noData: 'अभी खेत का डेटा नहीं है। एक प्लॉट जोड़ें और सेंसर से रिपोर्ट आने दें, फिर पूछें।',
-    healthLead: '{plot} की सेहत {index}/100 है ({risk})।',
-    topRisk: 'मुख्य चिंता: {title} — {detail}',
-    allClear: 'अभी कोई बड़ा खतरा नहीं है। सामान्य कार्यक्रम जारी रखें।',
-    actions: 'क्या करें:',
-    within: '{h} घंटे में',
-    sensorsLine: 'सेंसर: {online}/{total} नोड चालू, मिट्टी की नमी {sm}%, N {n} ppm, कीट दबाव {pest}/100।',
-    weatherLine: 'आज {min}-{max}°C, {rain} मिमी बारिश ({prob}% संभावना), हवा {wind} किमी/घंटा तक।',
-    noWeather: 'ऑफ़लाइन में मौसम पूर्वानुमान उपलब्ध नहीं है। नेटवर्क आने पर अपडेट होगा।',
-    marketLine: 'मंडी भाव के लिए Market टैब खोलें — इसके लिए इंटरनेट चाहिए।',
-    droneLine: 'ड्रोन: {status}। मिशन देखने और पुष्टि करने के लिए Drone खोलें।',
-    droneNone: 'कोई ड्रोन मिशन लंबित नहीं है। छिड़काव ज़रूरी होने पर सुझाव आएगा।',
-    help: 'सिंचाई, खाद, कीट, रोग, मौसम, सेंसर या मंडी भाव के बारे में पूछें। मैं आपके खेत के डेटा से ऑफ़लाइन भी जवाब देता हूँ।',
-    offlineNote: 'आपके सेंसर डेटा से फ़ोन पर ही उत्तर दिया गया।',
-  },
-  ta: {
-    noData: 'இன்னும் வயல் தகவல் இல்லை. ஒரு நிலத்தைச் சேர்த்து சென்சார் தகவல் வரும்வரை காத்திருங்கள்.',
-    healthLead: '{plot} ஆரோக்கியம் {index}/100 ({risk}).',
-    topRisk: 'முதன்மைக் கவலை: {title} — {detail}',
-    allClear: 'இப்போது பெரிய ஆபத்து இல்லை. வழக்கமான அட்டவணையைத் தொடருங்கள்.',
-    actions: 'என்ன செய்ய வேண்டும்:',
-    within: '{h} மணி நேரத்தில்',
-    sensorsLine: 'சென்சார்: {online}/{total} செயலில், மண் ஈரப்பதம் {sm}%, N {n} ppm, பூச்சி அழுத்தம் {pest}/100.',
-    weatherLine: 'இன்று {min}-{max}°C, {rain} மிமீ மழை ({prob}% வாய்ப்பு), காற்று {wind} கிமீ/மணி வரை.',
-    noWeather: 'ஆஃப்லைனில் வானிலை முன்னறிவிப்பு இல்லை. இணைப்பு வந்ததும் புதுப்பிக்கப்படும்.',
-    marketLine: 'சந்தை விலைகளுக்கு Market தாவலைத் திறக்கவும் — இணையம் தேவை.',
-    droneLine: 'ட்ரோன்: {status}. பணியை உறுதிப்படுத்த Drone திறக்கவும்.',
-    droneNone: 'நிலுவையில் ட்ரோன் பணி இல்லை. தெளிப்பு தேவைப்பட்டால் பரிந்துரைக்கப்படும்.',
-    help: 'நீர்ப்பாசனம், உரம், பூச்சி, நோய், வானிலை, சென்சார் அல்லது சந்தை விலை பற்றிக் கேளுங்கள். ஆஃப்லைனிலும் பதிலளிப்பேன்.',
-    offlineNote: 'உங்கள் சென்சார் தகவலில் இருந்து சாதனத்திலேயே பதில்.',
-  },
-};
-
-function fill(template: string, vars: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
-}
-
 /** Compose an answer from live assessments — no network required. */
 export function answerOffline(question: string, ctx: AssistantContext): string {
-  const t = T[ctx.language] ?? T.en;
+  const t = i18n.getFixedT(ctx.language);
+  const fill = (key: string, vars?: Record<string, string | number>) => t(`mitra.offline.${key}`, vars) as string;
   const { plot, snapshot, assessment, forecast } = ctx;
 
-  if (!plot || !snapshot || !assessment) return t.noData;
+  if (!plot || !snapshot || !assessment) return fill('noData');
 
   const intent = detectIntent(question);
   const parts: string[] = [];
 
   const domainIntents: RiskDomain[] = ['irrigation', 'pest', 'nutrient', 'cropHealth', 'climate'];
 
-  if (intent === 'help') return t.help;
+  if (intent === 'help') return fill('help');
 
   if (intent === 'weather') {
     const d = forecast?.daily?.[0];
-    if (!d) return t.noWeather;
-    return fill(t.weatherLine, {
+    if (!d) return fill('noWeather');
+    return fill('weatherLine', {
       min: Math.round(d.tempMin),
       max: Math.round(d.tempMax),
       rain: d.precipitation,
@@ -248,11 +200,11 @@ export function answerOffline(question: string, ctx: AssistantContext): string {
     });
   }
 
-  if (intent === 'market') return t.marketLine;
+  if (intent === 'market') return fill('marketLine');
 
   if (intent === 'sensors') {
     const r = snapshot.reading;
-    return fill(t.sensorsLine, {
+    return fill('sensorsLine', {
       online: snapshot.nodesOnline,
       total: snapshot.nodesTotal,
       sm: r.soilMoisture,
@@ -263,19 +215,19 @@ export function answerOffline(question: string, ctx: AssistantContext): string {
 
   if (intent === 'drone') {
     const sprayable = assessment.recommendations.filter((r) => r.droneEligible);
-    if (sprayable.length === 0) return t.droneNone;
-    return fill(t.droneLine, { status: sprayable[0].text });
+    if (sprayable.length === 0) return fill('droneNone');
+    return fill('droneLine', { status: sprayable[0].text });
   }
 
   // Domain question, or the general "how is my field" case.
   if (domainIntents.includes(intent as RiskDomain)) {
     const risk = assessment.risks.find((r) => r.domain === intent);
     if (risk) {
-      parts.push(fill(t.topRisk, { title: risk.title, detail: risk.detail }));
+      parts.push(fill('topRisk', { title: risk.title, detail: risk.detail }));
       if (risk.recommendations.length) {
-        parts.push(t.actions);
+        parts.push(fill('actions'));
         risk.recommendations.forEach((r) =>
-          parts.push(`• ${r.text} (${fill(t.within, { h: r.windowHours })})`)
+          parts.push(`• ${r.text} (${fill('within', { h: r.windowHours })})`)
         );
       }
       return parts.join('\n');
@@ -284,18 +236,18 @@ export function answerOffline(question: string, ctx: AssistantContext): string {
 
   // Default: overall field status.
   parts.push(
-    fill(t.healthLead, { plot: plot.name, index: snapshot.healthIndex, risk: snapshot.risk })
+    fill('healthLead', { plot: plot.name, index: snapshot.healthIndex, risk: snapshot.risk })
   );
   if (assessment.primary) {
-    parts.push(fill(t.topRisk, { title: assessment.primary.title, detail: assessment.primary.detail }));
+    parts.push(fill('topRisk', { title: assessment.primary.title, detail: assessment.primary.detail }));
   } else {
-    parts.push(t.allClear);
+    parts.push(fill('allClear'));
   }
   if (assessment.recommendations.length) {
-    parts.push(t.actions);
+    parts.push(fill('actions'));
     assessment.recommendations
       .slice(0, 3)
-      .forEach((r) => parts.push(`• ${r.text} (${fill(t.within, { h: r.windowHours })})`));
+      .forEach((r) => parts.push(`• ${r.text} (${fill('within', { h: r.windowHours })})`));
   }
   return parts.join('\n');
 }
@@ -320,29 +272,8 @@ export async function ask(question: string, ctx: AssistantContext): Promise<Assi
 
 /** Starter prompts shown as chips in the chat, localised. */
 export function suggestedPrompts(language: Language): string[] {
-  switch (language) {
-    case 'hi':
-      return [
-        'क्या मुझे आज सिंचाई करनी चाहिए?',
-        'मेरे खेत में कीट का खतरा क्या है?',
-        'कौन सी खाद कितनी डालें?',
-        'अगले 3 दिन का मौसम कैसा है?',
-      ];
-    case 'ta':
-      return [
-        'இன்று நீர்ப்பாசனம் செய்ய வேண்டுமா?',
-        'பூச்சி ஆபத்து எவ்வளவு?',
-        'எந்த உரம் எவ்வளவு போட வேண்டும்?',
-        'அடுத்த 3 நாள் வானிலை என்ன?',
-      ];
-    default:
-      return [
-        'Should I irrigate today?',
-        'What is the pest risk in my field?',
-        'Which fertiliser and how much?',
-        'What is the weather risk this week?',
-      ];
-  }
+  const t = i18n.getFixedT(language);
+  return [t('mitra.prompts.p1'), t('mitra.prompts.p2'), t('mitra.prompts.p3'), t('mitra.prompts.p4')];
 }
 
 export function newMessage(role: ChatMessage['role'], text: string, offline?: boolean): ChatMessage {

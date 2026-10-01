@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Dimensions, StyleSheet, Text, View } from 'react-native';
+import { Alert, Dimensions, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -7,7 +7,7 @@ import { DRONE_LIMITS } from '../config/agronomy';
 import { droneFlightCheck, FARMER_CHECK_TTL_MS } from '../services/decisionEngine';
 import { missionEconomics, nextStatus, proposeMission } from '../services/drone';
 import { activeLink, buildFlightPlan, describePlan, LinkStatus } from '../services/droneLink';
-import { scheduleMissionReminder } from '../services/notifications';
+import { requestPermission, scheduleMissionReminder } from '../services/notifications';
 import { enqueue } from '../services/offline';
 import { nextCalmWindow } from '../services/weather';
 import { usePlotState } from '../hooks/useTelemetry';
@@ -23,7 +23,7 @@ import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, toneColors, typography } from '../theme';
 import { AppHeader, Badge, Button, Card, EmptyState, Screen, SectionTitle } from '../components/ui';
 import { CompareBars } from '../components/charts';
-import { DroneMissionCard } from '../components/domain';
+import { DroneMissionCard, FlightResults, SimpleDroneFlow } from '../components/domain';
 
 /**
  * Drone operations.
@@ -128,7 +128,10 @@ export default function DroneScreen() {
   // Bridge state, polled only while the screen is open and only when a link
   // can actually command something. Hand-entry has nothing to poll.
   const [linkStatus, setLinkStatus] = useState<LinkStatus | null>(null);
-  const [flying, setFlying] = useState<'upload' | 'start' | 'abort' | null>(null);
+  const [flying, setFlying] = useState<'upload' | 'start' | 'abort' | 'connect' | 'takeoff' | 'land' | null>(null);
+  // Phone link: the simple four-step flow is the screen; everything else is
+  // under "More controls", so a farmer sees one path, not every option.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [flyNote, setFlyNote] = useState<string | null>(null);
 
   useEffect(() => {
@@ -139,7 +142,9 @@ export default function DroneScreen() {
       if (!cancelled) setLinkStatus(st);
     };
     void poll();
-    const id = setInterval(poll, 3000);
+    // Faster for the phone link: it is a local call, and takeoff/landing state
+    // is what the farmer is watching.
+    const id = setInterval(poll, link.kind === 'phone' ? 1000 : 3000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -157,7 +162,9 @@ export default function DroneScreen() {
     setFlyNote(null);
     const ok = await link.upload(plan);
     setFlying(null);
-    setFlyNote(ok ? t('drone.uploadOk') : t('drone.uploadFailed'));
+    // The phone link says exactly why it refused ("no GPS fix yet"), which
+    // beats the generic message.
+    setFlyNote(ok ? t('drone.uploadOk') : link.lastRefusal?.() ?? t('drone.uploadFailed'));
   }, [plan, link, t]);
 
   const doStart = useCallback(async () => {
@@ -165,17 +172,36 @@ export default function DroneScreen() {
     setFlyNote(null);
     const ok = await link.start();
     setFlying(null);
-    // A refusal here is usually the bridge saying the upload has not finished
+    // A refusal here is usually the drone saying the upload has not finished
     // acknowledging, which is correct behaviour rather than a fault.
-    setFlyNote(ok ? t('drone.startOk') : t('drone.startRefused'));
+    setFlyNote(ok ? t('drone.startOk') : link.lastRefusal?.() ?? t('drone.startRefused'));
   }, [link, t]);
 
   const doAbort = useCallback(async () => {
     setFlying('abort');
     const ok = await link.abort();
     setFlying(null);
-    setFlyNote(ok ? t('drone.abortOk') : t('drone.abortFailed'));
+    setFlyNote(ok ? t('drone.abortOk') : link.lastRefusal?.() ?? t('drone.abortFailed'));
   }, [link, t]);
+
+  // Phone link only: open the connection, and GPS takeoff / landing.
+  const doLinkCommand = useCallback(
+    async (kind: 'connect' | 'disconnect' | 'takeoff' | 'land') => {
+      const fn = kind === 'connect' ? link.connect : kind === 'disconnect' ? link.disconnect : kind === 'takeoff' ? link.takeoff : link.land;
+      if (!fn) return;
+      if (kind === 'connect') {
+        // Android 13+ hides the link's notification (Hover / Land) without this.
+        await requestPermission().catch(() => false);
+      }
+      setFlying(kind === 'disconnect' ? null : kind);
+      setFlyNote(null);
+      const ok = await fn();
+      setFlying(null);
+      setFlyNote(ok ? null : link.lastRefusal?.() ?? null);
+      setLinkStatus(await link.status());
+    },
+    [link]
+  );
 
   return (
     <Screen scroll>
@@ -185,6 +211,27 @@ export default function DroneScreen() {
         onBack={() => navigation.goBack()}
       />
 
+      {link.kind === 'phone' ? (
+        <>
+          <SimpleDroneFlow
+            link={link}
+            status={linkStatus}
+            refresh={async () => setLinkStatus(await link.status())}
+            weather={{ ok: flight.ok, reason: flight.reason }}
+          />
+          <Button
+            title={showAdvanced ? t('simple.hideMore') : t('simple.showMore')}
+            icon={showAdvanced ? 'chevron-up' : 'options'}
+            variant="ghost"
+            size="sm"
+            onPress={() => setShowAdvanced((v) => !v)}
+            style={{ marginHorizontal: spacing.lg, marginTop: spacing.sm }}
+          />
+        </>
+      ) : null}
+
+      {link.kind !== 'phone' || showAdvanced ? (
+      <>
       {/* Flight conditions */}
       <Card tone={flight.ok ? 'ok' : 'danger'}>
         <View style={s.flightRow}>
@@ -287,6 +334,65 @@ export default function DroneScreen() {
           </Text>
         ) : null}
       </Card>
+
+      {/* Phone link: the app flies the drone itself. */}
+      {link.connect ? (
+        <>
+          <SectionTitle title={link.label} icon="radio" />
+          <Card tone={linkStatus?.connected ? 'ok' : undefined}>
+            <Text style={s.linkStatusText}>{linkStatus?.detail ?? '…'}</Text>
+            {!linkStatus?.running ? (
+              <>
+                <Text style={s.linkHint}>{t('drone.connectHint')}</Text>
+                <Button
+                  title={t('drone.connect')}
+                  icon="wifi"
+                  size="sm"
+                  loading={flying === 'connect'}
+                  onPress={() => void doLinkCommand('connect')}
+                  style={{ marginTop: spacing.md }}
+                />
+              </>
+            ) : (
+              <>
+                <View style={s.flyRow}>
+                  <Button
+                    title={t('drone.takeoff')}
+                    icon="arrow-up-circle"
+                    size="sm"
+                    loading={flying === 'takeoff'}
+                    // Airborne already, or conditions say no: nothing to take off into.
+                    disabled={!linkStatus?.connected || Boolean(linkStatus?.airborne) || !flight.ok}
+                    onPress={() => void doLinkCommand('takeoff')}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    title={t('drone.land')}
+                    icon="arrow-down-circle"
+                    size="sm"
+                    variant="secondary"
+                    loading={flying === 'land'}
+                    // Never gated on weather: a drone in the air must always be landable.
+                    disabled={!linkStatus?.connected}
+                    onPress={() => void doLinkCommand('land')}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+                <Button
+                  title={t('drone.disconnect')}
+                  icon="close"
+                  size="sm"
+                  variant="ghost"
+                  disabled={Boolean(linkStatus?.airborne)}
+                  onPress={() => void doLinkCommand('disconnect')}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </>
+            )}
+            {flyNote && !plan ? <Text style={s.linkText}>{flyNote}</Text> : null}
+          </Card>
+        </>
+      ) : null}
 
       {/* Create */}
       <View style={s.createRow}>
@@ -396,6 +502,9 @@ export default function DroneScreen() {
                           style={{ flex: 1 }}
                         />
                       </View>
+                      {link.kind === 'phone' && linkStatus?.connected && !linkStatus.airborne ? (
+                        <Text style={s.linkText}>{t('drone.takeoffFirst')}</Text>
+                      ) : null}
                       <Button
                         title={t('drone.abort')}
                         icon="hand-left"
@@ -416,6 +525,16 @@ export default function DroneScreen() {
               </>
             )}
           </Card>
+        </>
+      ) : null}
+
+      {/* After a flight: drone GPS + hover photos from this phone, AS7343
+          spectra from the plant sensor, joined per spot. Shown whenever the phone can fly the drone,
+          because a flight's data outlives its mission card. */}
+      {link.canCommand ? (
+        <>
+          <SectionTitle title={t('drone.results.title')} icon="analytics" />
+          <FlightResults />
         </>
       ) : null}
 
@@ -503,6 +622,8 @@ export default function DroneScreen() {
       ) : null}
 
       {!plot ? <EmptyState icon="paper-plane-outline" title={t('drone.noPlot')} /> : null}
+      </>
+      ) : null}
     </Screen>
   );
 }
@@ -572,6 +693,8 @@ const s = StyleSheet.create({
     borderRadius: radii.sm,
   },
   linkText: { ...typography.tiny, color: colors.info, flex: 1, lineHeight: 16 },
+  linkStatusText: { ...typography.small, color: colors.text, fontWeight: '600', lineHeight: 19 },
+  linkHint: { ...typography.tiny, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 16 },
   flyRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   muted: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   flightRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },

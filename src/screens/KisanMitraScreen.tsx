@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { hasCloudAi } from '../config/env';
@@ -78,6 +78,17 @@ export default function KisanMitraScreen() {
     const id = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
     return () => clearTimeout(id);
   }, [messages.length, thinking]);
+
+  // A question spoken on Home arrives as a route param and is asked at once.
+  const route = useRoute<any>();
+  const handed = route.params?.question as string | undefined;
+  const askedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (handed && askedRef.current !== handed) {
+      askedRef.current = handed;
+      void send(handed);
+    }
+  }, [handed, send]);
 
   const prompts = suggestedPrompts(language);
 

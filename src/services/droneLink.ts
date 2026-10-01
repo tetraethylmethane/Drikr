@@ -1,6 +1,8 @@
-import env, { hasDroneLink } from '../config/env';
+import NativeDroneLink, { droneLinkAvailable, ScoutStatus } from '../../modules/drone-link';
 import { DroneMission, GeoPoint, Plot } from '../types';
 import { checkGeoref, formatGeo, gridRefToGeo } from './geo';
+import { tr } from '../i18n/tr';
+import { localizeNative } from './nativeText';
 
 /**
  * The seam between a mission and an actual aircraft.
@@ -130,16 +132,16 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
     dropped = waypoints.length - MAX_WAYPOINTS;
     waypoints.length = MAX_WAYPOINTS;
     warnings.push(
-      `Only ${MAX_WAYPOINTS} waypoints fit in one flight, so ${dropped} more cell(s) are not included. Fly a second mission to cover them.`
+      tr('link.tooMany', { max: MAX_WAYPOINTS, dropped })
     );
   }
 
   if (altitudeM > MAX_ALTITUDE_M) {
-    problems.push(`Altitude ${altitudeM} m is past the ${MAX_ALTITUDE_M} m the aircraft accepts.`);
+    problems.push(tr('link.tooHigh', { alt: altitudeM, max: MAX_ALTITUDE_M }));
   }
 
   if (check.ok && waypoints.length === 0) {
-    problems.push('This mission has no target cells, so there is nothing to fly to.');
+    problems.push(tr('link.empty'));
   }
 
   const a = plot.georef?.anchors[0];
@@ -157,7 +159,7 @@ export function buildFlightPlan(mission: DroneMission, plot: Plot): FlightPlan {
 
 // --- Links ------------------------------------------------------------------
 
-export type LinkKind = 'manual' | 'besta' | 'mavlink';
+export type LinkKind = 'manual' | 'phone' | 'mavlink';
 
 export interface LinkStatus {
   connected: boolean;
@@ -166,6 +168,22 @@ export interface LinkStatus {
   batteryPct?: number;
   /** 0..100, from the aircraft's own mission progress when it reports one. */
   progressPct?: number;
+  /** From the drone's own GPS, when the link decodes its telemetry. */
+  gpsFix?: boolean;
+  gpsSats?: number;
+  position?: GeoPoint;
+  altitudeM?: number;
+  /** 1-based waypoint the drone is holding at, 0 when between points. */
+  atWaypoint?: number;
+  /** "locked", "taking_off", "unlocked_takeoff", "landing", ... */
+  flyState?: string;
+  airborne?: boolean;
+  /** Mission as the aircraft holds it: idle / uploading / ready / flying / failed. */
+  missionState?: string;
+  /** Phone link only: the link service is running (it may not have heard the drone yet). */
+  running?: boolean;
+  /** Phone link only: the one-button scout, when one has run. */
+  scout?: ScoutStatus;
 }
 
 export interface DroneLink {
@@ -185,6 +203,20 @@ export interface DroneLink {
   start(): Promise<boolean>;
   /** Stop and return home. */
   abort(): Promise<boolean>;
+  /**
+   * Links that talk to the aircraft themselves (the phone link) can also open
+   * the connection and take off / land.
+   */
+  connect?(): Promise<boolean>;
+  disconnect?(): Promise<boolean>;
+  takeoff?(): Promise<boolean>;
+  land?(): Promise<boolean>;
+  /** One button: take off, photograph a small grid of spots around the drone, land. */
+  scout?(rows: number, cols: number, spacingM: number): Promise<boolean>;
+  /** Stop scouting and hold position. */
+  cancelScout?(): Promise<boolean>;
+  /** Why the last command was refused, in words for the farmer. */
+  lastRefusal?(): string | null;
 }
 
 /**
@@ -201,10 +233,12 @@ export interface DroneLink {
 export function manualLink(): DroneLink {
   return {
     kind: 'manual',
-    label: 'Enter by hand',
+    get label() {
+      return tr('link.manual');
+    },
     canCommand: false,
     async status() {
-      return { connected: false, detail: 'Waypoints are entered in the drone’s own app.' };
+      return { connected: false, detail: tr('link.manualDetail') };
     },
     async upload() {
       // Nothing to upload to. Reported as success because the plan is ready for
@@ -221,98 +255,110 @@ export function manualLink(): DroneLink {
 }
 
 /**
- * The turbodrone bridge: a real link to the DR-DG600C.
+ * The phone talks to the drone itself (Android build with the drone-link
+ * native module). The module keeps the 25 Hz link
+ * alive in a foreground service, uploads waypoints, logs the drone's GPS and
+ * keeps hover photos on the phone.
  *
- * Speaks to the HTTP API in front of the reverse-engineered Lewei HY protocol.
- * The bridge runs on a laptop joined to the drone's own WiFi access point and
- * owns the 200 ms retry-until-acknowledged upload handshake and the pointFly
- * start flag, so this side stays a plain REST client.
- *
- * Note what is still true here: no control loop. The app hands over a waypoint
- * list and says go. The flight controller flies it.
+ * No piloting. The sticks stay centred; the flight
+ * controller flies its own GPS takeoff, waypoint mission and landing.
  */
-export function lwProLink(baseUrl: string): DroneLink {
-  const base = baseUrl.replace(/\/$/, '');
-
-  async function call(path: string, init?: RequestInit): Promise<Response | null> {
-    const controller = new AbortController();
-    // Short: the bridge is on the same LAN, so a slow answer means it is gone
-    // rather than busy, and a farmer waiting on a drone should not watch a
-    // spinner for 30 seconds.
-    const timer = setTimeout(() => controller.abort(), 6000);
-    try {
-      return await fetch(`${base}${path}`, { ...init, signal: controller.signal });
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+export function phoneLink(): DroneLink {
+  const native = NativeDroneLink!;
+  let refusal: string | null = null;
+  const run = (why: string | null) => {
+    refusal = why === null ? null : localizeNative(why);
+    return why === null;
+  };
 
   return {
-    kind: 'besta',
-    label: 'Drone WiFi bridge',
+    kind: 'phone',
+    get label() {
+      return tr('link.phone');
+    },
     canCommand: true,
 
     async status() {
-      const res = await call('/mission');
-      if (!res || !res.ok) {
-        return { connected: false, detail: 'Bridge not reachable on the drone WiFi' };
+      const st = native.status();
+      if (!st.running) {
+        return { connected: false, running: false, detail: st.error ? localizeNative(st.error) : tr('link.notConnected') };
       }
-      try {
-        const body = (await res.json()) as {
-          state?: string;
-          uploaded?: number;
-          total?: number;
-          battery_pct?: number;
-        };
-        const state = body.state ?? 'unknown';
-        const detail =
-          state === 'uploading' && body.total
-            ? `Uploading waypoint ${body.uploaded ?? 0} of ${body.total}`
-            : state;
-        const progressPct =
-          body.total && body.total > 0
-            ? Math.round(((body.uploaded ?? 0) / body.total) * 100)
-            : undefined;
-        return { connected: true, detail, progressPct, batteryPct: body.battery_pct };
-      } catch {
-        return { connected: true, detail: 'Bridge answered but the reply was unreadable' };
+      if (!st.connected) {
+        return { connected: false, running: true, detail: tr('native.noSignal') };
       }
+      const t = st.telemetry;
+      const m = st.mission;
+      const parts: string[] = [];
+      if (t) {
+        parts.push(t.gps_fix ? tr('link.gps', { n: t.gps_sats ?? 0 }) : tr('link.noGps'));
+        if (t.waypoint) parts.push(tr('link.atStop', { n: t.waypoint }));
+        if (t.battery_pct != null) parts.push(tr('link.battery', { pct: t.battery_pct }));
+      }
+      if (m && m.state !== 'idle') {
+        if (m.state === 'uploading') parts.push(tr('link.sending', { n: m.uploaded + 1, total: m.waypoints }));
+      }
+      return {
+        connected: true,
+        running: true,
+        detail: parts.join(' · '),
+        batteryPct: t?.battery_pct ?? undefined,
+        progressPct: m && m.waypoints > 0 ? Math.round((m.uploaded / m.waypoints) * 100) : undefined,
+        gpsFix: t?.gps_fix,
+        gpsSats: t?.gps_sats ?? undefined,
+        position: t?.gps_fix && t.latitude != null && t.longitude != null ? { lat: t.latitude, lon: t.longitude } : undefined,
+        altitudeM: t?.altitude_m ?? undefined,
+        atWaypoint: t?.waypoint,
+        flyState: t?.fly_state ?? undefined,
+        airborne: t?.airborne,
+        missionState: m?.state,
+        scout: st.scout,
+      };
+    },
+
+    async connect() {
+      return run(native.start() ? null : tr('link.startFailed'));
+    },
+    async disconnect() {
+      native.stop();
+      return run(null);
+    },
+    async takeoff() {
+      return run(native.takeoff());
+    },
+    async land() {
+      return run(native.land());
+    },
+    async scout(rows: number, cols: number, spacingM: number) {
+      return run(native.startScout(rows, cols, spacingM));
+    },
+    async cancelScout() {
+      return run(native.cancelScout());
     },
 
     async upload(plan: FlightPlan) {
-      // Never upload a plan we have already said is untrustworthy. The bridge
-      // would happily accept it.
-      if (plan.problems.length > 0 || plan.waypoints.length === 0) return false;
-
-      const res = await call('/mission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          waypoints: plan.waypoints.map((w) => ({
+      if (plan.problems.length > 0 || plan.waypoints.length === 0) return run(tr('link.planProblems'));
+      return run(
+        native.uploadMission(
+          plan.waypoints.map((w) => ({
             latitude: w.lat,
             longitude: w.lon,
-            altitude_m: w.altitudeM,
-            speed_ms: Math.min(w.speedMs, MAX_SPEED_MS),
-            stay_s: Math.min(w.holdSeconds, MAX_STAY_S),
-          })),
-        }),
-      });
-      return Boolean(res && res.ok);
+            altitudeM: w.altitudeM,
+            speedMs: Math.min(w.speedMs, MAX_SPEED_MS),
+            stayS: Math.min(w.holdSeconds, MAX_STAY_S),
+          }))
+        )
+      );
     },
 
     async start() {
-      const res = await call('/mission/start', { method: 'POST' });
-      // 409 is the bridge refusing because the upload has not finished
-      // acknowledging. That is a correct refusal, not a transport failure.
-      return Boolean(res && res.ok);
+      return run(native.startMission());
     },
 
     async abort() {
-      const res = await call('/mission/abort', { method: 'POST' });
-      return Boolean(res && res.ok);
+      return run(native.hover());
     },
+
+    lastRefusal: () => refusal,
   };
 }
 
@@ -329,11 +375,12 @@ export function describePlan(plan: FlightPlan): string[] {
 /**
  * Which link to use.
  *
- * The bridge when one is configured, hand-entry otherwise. Hand-entry is not a
- * failure state: a rented drone, or a phone not joined to the drone's WiFi, is
- * the normal case for most farmers, and the app is still doing the part a drone
- * app cannot — deciding where to look.
+ * The phone flies the drone itself wherever the native module exists (the
+ * Android app). Elsewhere (iOS, Expo Go) the app hands the farmer the route to
+ * type into the drone's own app. Hand-entry is not a failure state: for a
+ * rented drone it may be the only link that works, and the app is still doing
+ * the part a drone app cannot - deciding where to look.
  */
 export function activeLink(): DroneLink {
-  return hasDroneLink() ? lwProLink(env.droneLinkUrl) : manualLink();
+  return droneLinkAvailable ? phoneLink() : manualLink();
 }

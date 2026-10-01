@@ -14,6 +14,7 @@ import { droneFlightCheck } from './decisionEngine';
 import { affectedFraction, inspectCells, orderForFlight, riskCells } from './healthMap';
 import { surveyCells } from './scouting';
 import { nextCalmWindow } from './weather';
+import { tr } from '../i18n/tr';
 
 /**
  * Drone mission planning — the "Autonomous Response" and "Drone Action" stages.
@@ -142,7 +143,7 @@ export function proposeMission(input: ProposeInput): DroneMission {
     payload:
       type === 'spray'
         ? {
-            chemical: chemical ?? 'Neem-based biopesticide (azadirachtin 1500 ppm)',
+            chemical: chemical ?? tr('inputs.pest'),
             litres: Math.max(1, Math.round(areaAcres * DRONE_LIMITS.litresPerAcre * 10) / 10),
           }
         : undefined,
@@ -196,17 +197,17 @@ export function nextStatus(mission: DroneMission, now = Date.now()): DroneMissio
 export function missionStatusLabel(status: DroneMission['status']): string {
   switch (status) {
     case 'proposed':
-      return 'Awaiting confirmation';
+      return tr('mission.proposed');
     case 'scheduled':
-      return 'Scheduled';
+      return tr('mission.scheduled');
     case 'in_flight':
-      return 'In flight';
+      return tr('mission.in_flight');
     case 'completed':
-      return 'Completed';
+      return tr('mission.completed');
     case 'aborted':
-      return 'Aborted';
+      return tr('mission.aborted');
     case 'blocked':
-      return 'Blocked by weather';
+      return tr('mission.blocked');
   }
 }
 

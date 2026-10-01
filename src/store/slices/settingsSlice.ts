@@ -20,6 +20,18 @@ interface SettingsState {
   requireDroneConfirmation: boolean;
   units: 'metric';
   onboarded: boolean;
+  /**
+   * Home as one sentence and four buttons (default) rather than the full
+   * dashboard. Optional because state saved before this existed has no value;
+   * anything but `false` means simple.
+   */
+  simpleHome?: boolean;
+  /** What it costs this farmer to carry one quintal one km to a mandi, round trip. */
+  transportCostPerQKm?: number;
+  /** When the farmer agreed to the privacy notice (DPDP Act). */
+  privacyAcceptedAt?: number;
+  /** Up to three numbers that get urgent alerts as SMS from this phone. Empty = off. */
+  smsNumbers?: string[];
 
   /**
    * Address of the sensor master, as entered or discovered during setup.
@@ -49,11 +61,13 @@ const initialState: SettingsState = {
   mutedDomains: [],
   notificationsEnabled: true,
   voiceEnabled: true,
-  autoSpeak: false,
+  // Voice first: the home summary and answers are read aloud unless turned off.
+  autoSpeak: true,
   refreshSeconds: 20,
   requireDroneConfirmation: true,
   units: 'metric',
   onboarded: false,
+  simpleHome: true,
   masterAddress: null,
   sensorsPaired: false,
   calibration: {},
@@ -92,6 +106,18 @@ const settingsSlice = createSlice({
     setOnboarded: (state, action: PayloadAction<boolean>) => {
       state.onboarded = action.payload;
     },
+    setTransportCost: (state, action: PayloadAction<number>) => {
+      state.transportCostPerQKm = action.payload;
+    },
+    setPrivacyAccepted: (state, action: PayloadAction<number>) => {
+      state.privacyAcceptedAt = action.payload;
+    },
+    setSmsNumbers: (state, action: PayloadAction<string[]>) => {
+      state.smsNumbers = action.payload.slice(0, 3);
+    },
+    setSimpleHome: (state, action: PayloadAction<boolean>) => {
+      state.simpleHome = action.payload;
+    },
     setMasterAddress: (state, action: PayloadAction<string | null>) => {
       state.masterAddress = action.payload;
     },
@@ -129,5 +155,9 @@ export const {
   setRefreshSeconds,
   setRequireDroneConfirmation,
   setOnboarded,
+  setSimpleHome,
+  setTransportCost,
+  setPrivacyAccepted,
+  setSmsNumbers,
 } = settingsSlice.actions;
 export default settingsSlice.reducer;

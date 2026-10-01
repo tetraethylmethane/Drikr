@@ -9,6 +9,7 @@ import {
   outboxCount,
 } from './offline';
 import { masterBaseUrl } from './hardware';
+import { tr } from '../i18n/tr';
 
 /**
  * Phone-as-courier sync.
@@ -348,9 +349,9 @@ export async function runCourier(
 export function describeCollection(result: CollectResult | null): string | null {
   if (!result) return null;
   if (result.collected === 0 && result.missed === 0 && result.unmapped === 0) return null;
-  const parts = [`${result.collected} collected`];
-  if (result.missed > 0) parts.push(`${result.missed} lost before pickup`);
-  if (result.unmapped > 0) parts.push(`${result.unmapped} from an unknown node`);
-  if (result.queued > 0) parts.push(`${result.queued} waiting to upload`);
+  const parts = [tr('courier.collected', { n: result.collected })];
+  if (result.missed > 0) parts.push(tr('courier.missed', { n: result.missed }));
+  if (result.unmapped > 0) parts.push(tr('courier.unmapped', { n: result.unmapped }));
+  if (result.queued > 0) parts.push(tr('courier.queued', { n: result.queued }));
   return parts.join(' · ');
 }

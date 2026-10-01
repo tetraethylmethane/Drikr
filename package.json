@@ -28,6 +28,8 @@
     "expo-linear-gradient": "~57.0.2",
     "expo-location": "~57.0.20",
     "expo-notifications": "~57.0.21",
+    "expo-print": "~57.0.2",
+    "expo-sharing": "~57.0.22",
     "expo-speech": "~57.0.3",
     "expo-speech-recognition": "^57.0.0",
     "expo-splash-screen": "~57.0.9",

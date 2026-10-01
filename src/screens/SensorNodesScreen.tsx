@@ -213,9 +213,9 @@ export default function SensorNodesScreen() {
       {/* Hardware reference from the deck's BOM */}
       <SectionTitle title={t('nodes.hardware')} icon="hardware-chip" />
       <Card>
-        <HardwareRow label={t('nodes.soilProbe')} detail="Soil moisture, pH, EC, NPK" />
+        <HardwareRow label={t('nodes.soilProbe')} detail={t('nodesx.soilDetail')} />
         <HardwareRow label="BME688" detail={t('nodes.bme')} />
-        <HardwareRow label={t('nodes.canopy')} detail="Leaf wetness, light, rain, wind" />
+        <HardwareRow label={t('nodes.canopy')} detail={t('nodesx.canopyDetail')} />
         <HardwareRow label={t('nodes.biosensor')} detail={t('nodes.biosensorDetail')} />
       </Card>
     </Screen>

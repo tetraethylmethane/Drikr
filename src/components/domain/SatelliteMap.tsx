@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing, typography } from '../../theme';
 import { GeoPoint } from '../../types';
+import { tr } from '../../i18n/tr';
 
 /**
  * Tap-a-corner satellite map.
@@ -42,6 +43,10 @@ export function satelliteMapAvailable(): boolean {
   return loadWebView() !== null;
 }
 
+function escapeHtml(x: string): string {
+  return x.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c);
+}
+
 function pageHtml(center: GeoPoint, picked: GeoPoint[], labels: string[]): string {
   const markers = picked
     .map(
@@ -74,7 +79,7 @@ function pageHtml(center: GeoPoint, picked: GeoPoint[], labels: string[]): strin
 </head>
 <body>
 <div id="map"></div>
-<div class="hint" id="hint">Pinch to zoom until you can see your field, then tap the corner</div>
+<div class="hint" id="hint">${escapeHtml(tr('mapx.pinch'))}</div>
 <script>
   function numIcon(t) {
     return L.divIcon({ className:'', html:'<div class="num">'+t+'</div>',
@@ -110,7 +115,7 @@ function pageHtml(center: GeoPoint, picked: GeoPoint[], labels: string[]): strin
 
     post({ type:'ready' });
   } catch (err) {
-    document.body.innerHTML = '<div class="err">Map could not load: ' + err.message + '</div>';
+    document.body.innerHTML = '<div class="err">${escapeHtml(tr('mapx.failed'))} ' + err.message + '</div>';
     post({ type:'error', message: String(err && err.message) });
   }
 </script>

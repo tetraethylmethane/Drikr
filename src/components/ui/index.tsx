@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, shadow, spacing, StatusTone, toneColors, typography } from '../../theme';
+import { tr } from '../../i18n/tr';
 
 /** Shared UI primitives. Every screen composes these so spacing and tone stay uniform. */
 
@@ -70,7 +71,7 @@ export function AppHeader({
   return (
     <View style={[s.header, compact && { paddingVertical: spacing.sm }]}>
       {onBack ? (
-        <Pressable onPress={onBack} hitSlop={12} style={s.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={onBack} hitSlop={12} style={s.backBtn} accessibilityRole="button" accessibilityLabel={tr('a11y.back')}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </Pressable>
       ) : null}
@@ -259,7 +260,7 @@ export function Pill({
 
 /** Pulsing dot + "Live" label, matching the mockup's live indicator. */
 export function LiveDot({
-  label = 'Live',
+  label,
   stale,
   at,
   staleAfterMs,
@@ -283,7 +284,7 @@ export function LiveDot({
     return (
       <View style={s.liveWrap}>
         <View style={[s.liveDot, { backgroundColor: tone }]} />
-        <Text style={[s.liveText, { color: tone }]}>{stale ? 'Stale' : label}</Text>
+        <Text style={[s.liveText, { color: tone }]}>{stale ? tr('age.stale') : label ?? tr('age.live')}</Text>
       </View>
     );
   }
@@ -295,10 +296,10 @@ export function LiveDot({
 
   const text =
     ageMs < 45_000
-      ? 'just now'
+      ? tr('age.justNow')
       : ageMs < 3_600_000
-        ? `${Math.round(ageMs / 60_000)} min ago`
-        : `${Math.floor(ageMs / 3_600_000)}h ago`;
+        ? tr('age.min', { n: Math.round(ageMs / 60_000) })
+        : tr('age.hour', { n: Math.floor(ageMs / 3_600_000) });
 
   return (
     <View style={s.liveWrap}>
@@ -408,7 +409,7 @@ export function ConfidenceBar({
   return (
     <View style={{ marginTop: compact ? 4 : spacing.sm }}>
       <View style={s.confLabelRow}>
-        <Text style={s.confLabel}>Model confidence</Text>
+        <Text style={s.confLabel}>{tr('ui.confidence')}</Text>
         <Text style={[s.confValue, { color: fg }]}>{pct}%</Text>
       </View>
       <View style={s.confTrack}>

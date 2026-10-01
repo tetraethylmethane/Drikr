@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Alert, DroneMission } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Local notifications for the deck's "Instant Alerts on Mobile App".
@@ -28,7 +29,7 @@ export function configureNotifications(): void {
   if (Platform.OS === 'android') {
     // A dedicated high-importance channel so field alerts are not batched with chatter.
     Notifications.setNotificationChannelAsync('drikr-alerts', {
-      name: 'Field alerts',
+      name: tr('notify.channel'),
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#C4382E',
@@ -50,13 +51,13 @@ export async function requestPermission(): Promise<boolean> {
 function severityPrefix(severity: Alert['severity']): string {
   switch (severity) {
     case 'critical':
-      return 'Urgent';
+      return tr('notify.urgent');
     case 'high':
-      return 'Action needed';
+      return tr('notify.action');
     case 'medium':
-      return 'Watch';
+      return tr('notify.watch');
     default:
-      return 'Info';
+      return tr('notify.info');
   }
 }
 
@@ -83,10 +84,12 @@ export async function scheduleMissionReminder(mission: DroneMission): Promise<vo
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Drone ${mission.type === 'spray' ? 'spraying' : 'inspection'} starts in 15 minutes`,
-        body: `${mission.plotName} — ${mission.areaAcres} acre${
-          mission.payload ? `, ${mission.payload.litres} L` : ''
-        }. Clear the field.`,
+        title: tr(mission.type === 'spray' ? 'notify.spraySoon' : 'notify.checkSoon'),
+        body: tr('notify.soonBody', {
+          plot: mission.plotName,
+          acres: mission.areaAcres,
+          litres: mission.payload ? `, ${mission.payload.litres} L` : '',
+        }),
         data: { missionId: mission.id, kind: 'mission' },
         ...(Platform.OS === 'android' ? { channelId: 'drikr-alerts' } : null),
       },

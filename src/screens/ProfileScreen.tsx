@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert as RNAlert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import Constants from 'expo-constants';
+import { Alert as RNAlert, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -8,9 +9,11 @@ import { hasCloudAi } from '../config/env';
 import { telemetrySource } from '../services/telemetry';
 import { cacheClear, outboxCount } from '../services/offline';
 import { requestPermission } from '../services/notifications';
+import { MAX_SMS_NUMBERS, normaliseNumber, requestSmsPermission, sendSms, smsAvailable, testText } from '../services/smsAlerts';
 import { clearSession } from '../utils/session';
 import { clearPersistedState } from '../store/persist';
-import { LANGUAGES, useLanguage } from '../hooks/useLanguage';
+import { useLanguage } from '../hooks/useLanguage';
+import { LanguageGrid } from '../components/domain/LanguagePicker';
 import { resetToDemoFarm } from '../store/slices/farmSlice';
 import { clearAlerts } from '../store/slices/alertsSlice';
 import { clearMissions } from '../store/slices/droneSlice';
@@ -21,6 +24,7 @@ import {
   setNotificationsEnabled,
   setRefreshSeconds,
   setRequireDroneConfirmation,
+  setSmsNumbers,
   setVoiceEnabled,
   toggleMutedDomain,
 } from '../store/slices/settingsSlice';
@@ -44,6 +48,7 @@ export default function ProfileScreen() {
   const navigation = useNavigation<any>();
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const { language, change } = useLanguage();
 
   const profile = useAppSelector((s) => s.user.profile);
@@ -122,22 +127,7 @@ export default function ProfileScreen() {
       <SectionTitle title={t('profile.language')} icon="language" />
       <Card>
         <Text style={s.help}>{t('profile.languageHelp')}</Text>
-        <View style={s.langRow}>
-          {LANGUAGES.map((l) => (
-            <Pressable
-              key={l.code}
-              onPress={() => change(l.code)}
-              style={({ pressed }) => [
-                s.langBtn,
-                language === l.code && s.langBtnActive,
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={[s.langNative, language === l.code && { color: '#fff' }]}>{l.native}</Text>
-              <Text style={[s.langLabel, language === l.code && { color: '#FFFFFFBB' }]}>{l.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+        <LanguageGrid />
       </Card>
 
       {/* Alerts & confidence */}
@@ -158,8 +148,73 @@ export default function ProfileScreen() {
             }
           }}
         />
-        <Divider />
+      </Card>
+      {smsAvailable() ? <SmsCard /> : null}
 
+      {/* Voice */}
+      <SectionTitle title={t('profile.voice')} icon="mic" />
+      <Card>
+        <ToggleRow
+          icon="mic"
+          label={t('profile.voiceInput')}
+          help={t('profile.voiceInputHelp')}
+          value={settings.voiceEnabled}
+          onChange={(v) => dispatch(setVoiceEnabled(v))}
+        />
+        <Divider />
+        <ToggleRow
+          icon="volume-high"
+          label={t('profile.autoSpeak')}
+          help={t('profile.autoSpeakHelp')}
+          value={settings.autoSpeak}
+          onChange={(v) => dispatch(setAutoSpeak(v))}
+        />
+      </Card>
+
+      {/* Hardware pairing */}
+      <SectionTitle title={t('nodes.title')} icon="hardware-chip" />
+      <Card>
+        <ListRow
+          title={t('setup.connectTitle')}
+          subtitle={
+            sensorsPaired
+              ? masterAddress ?? t('profile.simulated')
+              : t('fields.demoNotice')
+          }
+          icon="hardware-chip"
+          tone={sensorsPaired ? 'ok' : 'neutral'}
+          onPress={() => navigation.navigate('SensorSetup')}
+        />
+        <Divider />
+        <ListRow
+          title={t('nodes.title')}
+          subtitle={t('nodes.subtitle')}
+          icon="pulse"
+          onPress={() => navigation.navigate('SensorNodes')}
+        />
+      </Card>
+
+      {/* Government help and the farmer's data rights, always visible. */}
+      <SectionTitle title={t('schemes.title')} icon="ribbon" />
+      <Card padded={false}>
+        <ListRow icon="ribbon" title={t('schemes.title')} subtitle={t('schemes.subtitle')} onPress={() => navigation.navigate('Schemes')} />
+        <Divider />
+        <ListRow icon="shield" title={t('privacy.title')} subtitle={t('privacy.rowSub')} onPress={() => navigation.navigate('Privacy')} />
+      </Card>
+
+      {/* Everything a farmer rarely or never needs. Kept, not removed: these
+          are real controls, they just should not be the first thing on screen. */}
+      <Pressable style={s.advancedToggle} onPress={() => setShowAdvanced((v) => !v)}>
+        <Ionicons name={showAdvanced ? 'chevron-up' : 'chevron-down'} size={17} color={colors.brandLight} />
+        <View style={{ flex: 1 }}>
+          <Text style={s.advancedTitle}>{t('profile.advanced')}</Text>
+          <Text style={s.help}>{t('profile.advancedHelp')}</Text>
+        </View>
+      </Pressable>
+
+      {showAdvanced ? (
+        <>
+      <Card>
         <View style={s.thresholdBlock}>
           <View style={s.thresholdHeader}>
             <Ionicons name="shield-checkmark" size={17} color={colors.brandLight} />
@@ -211,26 +266,6 @@ export default function ProfileScreen() {
         </View>
       </Card>
 
-      {/* Voice */}
-      <SectionTitle title={t('profile.voice')} icon="mic" />
-      <Card>
-        <ToggleRow
-          icon="mic"
-          label={t('profile.voiceInput')}
-          help={t('profile.voiceInputHelp')}
-          value={settings.voiceEnabled}
-          onChange={(v) => dispatch(setVoiceEnabled(v))}
-        />
-        <Divider />
-        <ToggleRow
-          icon="volume-high"
-          label={t('profile.autoSpeak')}
-          help={t('profile.autoSpeakHelp')}
-          value={settings.autoSpeak}
-          onChange={(v) => dispatch(setAutoSpeak(v))}
-        />
-      </Card>
-
       {/* Drone safety */}
       <SectionTitle title={t('profile.droneSafety')} icon="paper-plane" />
       <Card>
@@ -253,29 +288,6 @@ export default function ProfileScreen() {
               dispatch(setRequireDroneConfirmation(true));
             }
           }}
-        />
-      </Card>
-
-      {/* Hardware pairing */}
-      <SectionTitle title={t('nodes.title')} icon="hardware-chip" />
-      <Card>
-        <ListRow
-          title={t('setup.connectTitle')}
-          subtitle={
-            sensorsPaired
-              ? masterAddress ?? t('profile.simulated')
-              : t('fields.demoNotice')
-          }
-          icon="hardware-chip"
-          tone={sensorsPaired ? 'ok' : 'neutral'}
-          onPress={() => navigation.navigate('SensorSetup')}
-        />
-        <Divider />
-        <ListRow
-          title={t('nodes.title')}
-          subtitle={t('nodes.subtitle')}
-          icon="pulse"
-          onPress={() => navigation.navigate('SensorNodes')}
         />
       </Card>
 
@@ -313,17 +325,80 @@ export default function ProfileScreen() {
       {/* About */}
       <SectionTitle title={t('profile.about')} icon="information-circle" />
       <Card>
-        <InfoRow label={t('profile.problemStatement')} value="SIH 2026 · PS 26180" />
-        <InfoRow label={t('profile.team')} value="Drikr · H043" />
-        <InfoRow label={t('profile.version')} value="1.0.0" />
+        <InfoRow label={t('profile.version')} value={Constants.expoConfig?.version ?? '-'} />
         <Text style={s.aboutBody}>{t('profile.aboutBody')}</Text>
       </Card>
 
       <View style={s.dangerZone}>
         <Button title={t('profile.resetData')} variant="secondary" icon="refresh" onPress={handleResetData} />
+      </View>
+        </>
+      ) : null}
+
+      <View style={s.dangerZone}>
         <Button title={t('profile.signOut')} variant="danger" icon="log-out" onPress={handleSignOut} />
       </View>
     </Screen>
+  );
+}
+
+/**
+ * Urgent alerts as SMS from this phone's own SIM - free of any server or paid
+ * plan. Bad numbers are dropped with a warning; the good ones are still saved.
+ */
+function SmsCard() {
+  const { t } = useTranslation();
+  const dispatch = useAppDispatch();
+  const saved = useAppSelector((st) => st.settings.smsNumbers) ?? [];
+  const [fields, setFields] = useState<string[]>(() =>
+    Array.from({ length: MAX_SMS_NUMBERS }, (_, i) => saved[i] ?? '')
+  );
+
+  const save = async (): Promise<string[] | null> => {
+    const typed = fields.map((f) => f.trim()).filter(Boolean);
+    const good = typed.map(normaliseNumber).filter((n): n is string => !!n);
+    const bad = typed.filter((f) => !normaliseNumber(f));
+    if (good.length && !(await requestSmsPermission())) {
+      RNAlert.alert(t('sms.title'), t('sms.noPermission'));
+      return null;
+    }
+    dispatch(setSmsNumbers(good));
+    setFields(Array.from({ length: MAX_SMS_NUMBERS }, (_, i) => good[i] ?? ''));
+    const msg = good.length ? t('sms.saved') : t('sms.cleared');
+    RNAlert.alert(t('sms.title'), bad.length ? `${t('sms.bad', { n: bad.join(', ') })}\n\n${msg}` : msg);
+    return good;
+  };
+
+  const test = async () => {
+    const numbers = await save();
+    if (!numbers?.length) return;
+    const r = sendSms(numbers, testText());
+    RNAlert.alert(t('sms.title'), r ? t(r === 'no_permission' ? 'sms.noPermission' : r === 'no_sim' ? 'sms.noSim' : 'sms.failed') : t('sms.testSent'));
+  };
+
+  return (
+    <Card>
+      <View style={s.toggleRow}>
+        <Ionicons name="chatbubble-ellipses" size={18} color={colors.brandLight} style={{ marginTop: 2 }} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.rowLabel}>{t('sms.title')}</Text>
+          <Text style={s.help}>{t('sms.help')}</Text>
+        </View>
+      </View>
+      {fields.map((v, i) => (
+        <TextInput
+          key={i}
+          value={v}
+          onChangeText={(x) => setFields((f) => f.map((y, j) => (j === i ? x : y)))}
+          placeholder={t('sms.placeholder')}
+          placeholderTextColor={colors.textMuted}
+          keyboardType="phone-pad"
+          style={s.smsInput}
+        />
+      ))}
+      <Button title={t('sms.save')} icon="save" onPress={() => void save()} style={{ marginTop: spacing.sm }} />
+      <Button title={t('sms.test')} icon="send" variant="secondary" onPress={() => void test()} style={{ marginTop: spacing.sm }} />
+    </Card>
   );
 }
 
@@ -367,6 +442,25 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
+  smsInput: {
+    ...typography.body,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  advancedToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  advancedTitle: { ...typography.bodyStrong, color: colors.brandLight },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   avatar: {
     width: 52,
@@ -382,19 +476,6 @@ const s = StyleSheet.create({
   chipRow: { flexDirection: 'row', gap: 6, marginTop: spacing.sm, flexWrap: 'wrap' },
   help: { ...typography.tiny, color: colors.textMuted, marginTop: 3, lineHeight: 16 },
   rowLabel: { ...typography.bodyStrong, color: colors.text, flex: 1 },
-  langRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  langBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-  },
-  langBtnActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  langNative: { ...typography.bodyStrong, color: colors.text },
-  langLabel: { fontSize: 9.5, fontWeight: '600', color: colors.textFaint, marginTop: 2 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
   thresholdBlock: { paddingVertical: spacing.md },
   thresholdHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

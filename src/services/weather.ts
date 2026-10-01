@@ -1,4 +1,5 @@
 import { GeoPoint, WeatherForecast } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Weather via Open-Meteo.
@@ -87,17 +88,17 @@ export async function fetchForecast(point: GeoPoint, timeoutMs = 9000): Promise<
 
 /** WMO weather code -> label + Ionicons name, for the forecast strip. */
 export function describeWeather(code: number): { label: string; icon: string } {
-  if (code === 0) return { label: 'Clear', icon: 'sunny' };
-  if (code <= 2) return { label: 'Partly cloudy', icon: 'partly-sunny' };
-  if (code === 3) return { label: 'Overcast', icon: 'cloud' };
-  if (code <= 48) return { label: 'Fog', icon: 'cloudy' };
-  if (code <= 57) return { label: 'Drizzle', icon: 'rainy' };
-  if (code <= 67) return { label: 'Rain', icon: 'rainy' };
-  if (code <= 77) return { label: 'Snow', icon: 'snow' };
-  if (code <= 82) return { label: 'Showers', icon: 'rainy' };
-  if (code <= 86) return { label: 'Snow showers', icon: 'snow' };
-  if (code <= 99) return { label: 'Thunderstorm', icon: 'thunderstorm' };
-  return { label: 'Unknown', icon: 'help-circle' };
+  if (code === 0) return { label: tr('sky.clear'), icon: 'sunny' };
+  if (code <= 2) return { label: tr('sky.partlyCloudy'), icon: 'partly-sunny' };
+  if (code === 3) return { label: tr('sky.overcast'), icon: 'cloud' };
+  if (code <= 48) return { label: tr('sky.fog'), icon: 'cloudy' };
+  if (code <= 57) return { label: tr('sky.drizzle'), icon: 'rainy' };
+  if (code <= 67) return { label: tr('sky.rain'), icon: 'rainy' };
+  if (code <= 77) return { label: tr('sky.snow'), icon: 'snow' };
+  if (code <= 82) return { label: tr('sky.showers'), icon: 'rainy' };
+  if (code <= 86) return { label: tr('sky.snowShowers'), icon: 'snow' };
+  if (code <= 99) return { label: tr('sky.thunderstorm'), icon: 'thunderstorm' };
+  return { label: tr('sky.unknown'), icon: 'help-circle' };
 }
 
 /** Total rainfall over the next N hours — used by the irrigation deferral logic. */

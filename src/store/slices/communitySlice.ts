@@ -2,59 +2,29 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { CommunityPost } from '../../types';
 
 /**
- * Farmer-to-farmer knowledge sharing (the deck's "Community Learning & Feedback").
+ * Farmer-to-farmer knowledge sharing.
  *
- * Posts are local-first: they are written to the store immediately and queued in the
- * outbox for sync, so a farmer with no signal can still record what worked.
+ * Two lists. `posts` is what this phone wrote, kept so a post typed in a field
+ * with no signal shows at once and survives until it uploads. `remote` is the
+ * shared feed from Firestore. The screen merges them by id, the server copy
+ * winning once it arrives.
+ *
+ * There is no sample content. A community shown with invented farmers and
+ * invented results would be fake testimony, and the empty state says plainly
+ * that nobody has posted yet.
  */
 
 interface CommunityState {
   posts: CommunityPost[];
+  remote: CommunityPost[];
+  /** Post ids this phone marked helpful. Kept on the phone. */
+  liked: Record<string, boolean>;
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-
 const initialState: CommunityState = {
-  posts: [
-    {
-      id: 'seed-1',
-      author: 'Ramesh K.',
-      district: 'Coimbatore',
-      crop: 'Maize',
-      text: 'Fall armyworm showed up in my Plot 2 last week. Neem spray at dusk for three evenings pulled it right down. Spray late, not at noon.',
-      at: Date.now() - 3 * HOUR,
-      likes: 14,
-      replies: [
-        {
-          id: 'seed-1-r1',
-          author: 'Lakshmi S.',
-          text: 'Same here. Adding a little soap to the mix helps it stick to the leaf.',
-          at: Date.now() - 2 * HOUR,
-        },
-      ],
-    },
-    {
-      id: 'seed-2',
-      author: 'Anil Patil',
-      district: 'Nashik',
-      crop: 'Cotton',
-      text: 'Drip + the app moisture alerts cut my watering from every 3 days to every 5. Same growth, far less pumping cost.',
-      at: Date.now() - 26 * HOUR,
-      likes: 31,
-      replies: [],
-    },
-    {
-      id: 'seed-3',
-      author: 'Sunita Devi',
-      district: 'Rohtas',
-      crop: 'Wheat',
-      text: 'Yellow rust warning came two days before I could see anything on the leaves. Sprayed early and saved the crop.',
-      at: Date.now() - 50 * HOUR,
-      likes: 22,
-      replies: [],
-    },
-  ],
+  posts: [],
+  remote: [],
+  liked: {},
 };
 
 const CAP = 200;
@@ -64,29 +34,21 @@ const communitySlice = createSlice({
   initialState,
   reducers: {
     addPost: (state, action: PayloadAction<CommunityPost>) => {
-      state.posts = [action.payload, ...state.posts].slice(0, CAP);
+      // Saved state from older versions held sample posts with `seed-` ids.
+      state.posts = [action.payload, ...(state.posts ?? []).filter((p) => !p.id.startsWith('seed-'))].slice(0, CAP);
+    },
+    setRemote: (state, action: PayloadAction<CommunityPost[]>) => {
+      state.remote = action.payload;
     },
     toggleLike: (state, action: PayloadAction<string>) => {
-      const p = state.posts.find((x) => x.id === action.payload);
-      if (!p) return;
-      p.likedByMe = !p.likedByMe;
-      p.likes += p.likedByMe ? 1 : -1;
+      state.liked = state.liked ?? {};
+      state.liked[action.payload] = !state.liked[action.payload];
     },
-    addReply: (
-      state,
-      action: PayloadAction<{ postId: string; author: string; text: string }>
-    ) => {
-      const p = state.posts.find((x) => x.id === action.payload.postId);
-      if (!p) return;
-      p.replies.push({
-        id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        author: action.payload.author,
-        text: action.payload.text,
-        at: Date.now(),
-      });
+    removeLocalPost: (state, action: PayloadAction<string>) => {
+      state.posts = (state.posts ?? []).filter((p) => p.id !== action.payload);
     },
   },
 });
 
-export const { addPost, toggleLike, addReply } = communitySlice.actions;
+export const { addPost, setRemote, toggleLike, removeLocalPost } = communitySlice.actions;
 export default communitySlice.reducer;

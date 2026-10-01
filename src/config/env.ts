@@ -25,8 +25,13 @@ function read(key: string, publicFallback?: string): string {
 
 export const env = {
   geminiApiKey: read('GEMINI_API_KEY', process.env.EXPO_PUBLIC_GEMINI_API_KEY),
-  /** turbodrone bridge, e.g. http://192.168.1.50:8000 */
-  droneLinkUrl: read('DRONE_LINK_URL', process.env.EXPO_PUBLIC_DRONE_LINK_URL),
+  /**
+   * AS7343 drone pod. It hosts its own WiFi (Drikr_Pod) at a fixed address, so
+   * the default is right unless the pod was told to join another network.
+   */
+  podUrl: read('POD_URL', process.env.EXPO_PUBLIC_POD_URL || 'http://192.168.4.1'),
+  /** Grievance contact shown in the privacy notice (DPDP Act). */
+  privacyContact: read('PRIVACY_CONTACT', process.env.EXPO_PUBLIC_PRIVACY_CONTACT || 'drikr.systems@gmail.com'),
   openaiApiKey: read('OPENAI_API_KEY', process.env.EXPO_PUBLIC_OPENAI_API_KEY),
   /** data.gov.in key. The published demo key ships as a fallback so market data works out of the box. */
   dataGovApiKey: read(
@@ -79,15 +84,6 @@ export const hasIngest = (): boolean => Boolean(env.ingestUrl && env.ingestKey);
 
 /** True when a cloud LLM is configured for Kisan Mitra; otherwise the offline engine answers. */
 export const hasCloudAi = (): boolean => Boolean(env.geminiApiKey || env.openaiApiKey);
-
-/**
- * Is a turbodrone bridge configured?
- *
- * The bridge runs on a laptop joined to the drone's own WiFi access point and
- * exposes the decoded Lewei HY protocol over HTTP. The phone has to be on that
- * same access point, so this is a LAN address and never a public one.
- */
-export const hasDroneLink = (): boolean => Boolean(env.droneLinkUrl);
 
 /**
  * Photo diagnosis needs a multimodal model, which is Gemini here. An OpenAI key

@@ -1,5 +1,6 @@
 import { Alert, GridRef, HealthMap, Plot, RiskAssessment, Severity } from '../types';
 import { PlotAssessment } from './decisionEngine';
+import { tr } from '../i18n/tr';
 
 /**
  * Turns risk assessments into the alert feed.
@@ -127,9 +128,10 @@ export function suppressedRisks(
     .filter((r) => r.score >= 33 && r.confidence < confidenceThreshold)
     .map((r) => ({
       risk: r,
-      reason: `Confidence ${Math.round(r.confidence * 100)}% is below your ${Math.round(
-        confidenceThreshold * 100
-      )}% alert threshold`,
+      reason: tr('alertsx.below', {
+        pct: Math.round(r.confidence * 100),
+        min: Math.round(confidenceThreshold * 100),
+      }),
     }));
 }
 

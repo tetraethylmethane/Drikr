@@ -3,8 +3,7 @@
 Sensors in the soil, the reasoning on the farmer's phone, and a drone that treats the
 affected patch instead of the whole field.
 
-**Smart India Hackathon 2026** · Problem Statement **26180** · Hardware category ·
-Team Drikr (H043)
+Version **1.2.1** · Android · 13 Indian languages · 18 crops
 
 ---
 
@@ -43,7 +42,25 @@ alerting, mission planning. It works with no connectivity at all, which is the p
 - **Georeferencing** — two GPS corners turn a field drawing into flyable waypoints.
 - **Kisan Mitra**, a multilingual assistant grounded in live field state, with an
   on-device fallback for when there is no signal.
-- **English, Hindi and Tamil** at full parity, with speech throughout.
+- **13 languages at full parity** — English, Hindi, Bengali, Marathi, Telugu, Tamil,
+  Gujarati, Urdu, Kannada, Odia, Malayalam, Punjabi and Assamese — with speech
+  throughout.
+- **Voice first** — screens read themselves aloud, and the farmer can say where to go
+  ("weather", "mandi price", "fly the drone") or just ask a question.
+- **18 crops** — paddy, wheat, maize, cotton, tomato, sugarcane, groundnut, soybean,
+  chickpea, tur, moong, mustard, onion, potato, chilli, banana, bajra and ragi.
+- **Soil Health Card** — enter the card's numbers and get urea, DAP and potash in bags
+  for the field.
+- **Crop insurance (PMFBY) claim report** — a PDF with dated, GPS-tagged camera and drone
+  photos, ready to send within the 72-hour window.
+- **Government help** — PM-KISAN status, MSP table, e-NAM, Kisan Call Centre, KVK and
+  IMD Meghdoot links, and the DGCA drone rules in plain words.
+- **Best mandi within 50 km** after the farmer's own transport cost, with a price trend.
+- **Shared drone booking** — farmers request, district operators accept; the farmer's
+  number is shown only to the operator who takes the job.
+- **Community** with expert badges, reporting and moderation.
+- **Privacy (DPDP Act 2023)** — consent at signup, a notice in every language, data
+  export and full deletion from the phone.
 
 ---
 
@@ -153,8 +170,8 @@ aircraft, so the seam exists instead of an assumption.
 
 | Aircraft | Link | Status |
 |---|---|---|
-| Dynalog DR-DG600C | `manual` | **Working.** 249 g camera drone, closed firmware — the app produces waypoints and the farmer enters them in the maker's app |
-| turbodrone bridge | `lwPro` | **Working.** A laptop on the drone's own WiFi speaks the reverse-engineered protocol; the app uploads, starts and aborts over HTTP |
+| Dynalog DR-DG600C | `phone` | **Working.** The Android app flies it directly over the drone's WiFi (`modules/drone-link`): a foreground service keeps the 25 Hz link alive with the screen off; one tap takes off, photographs up to 8 spots with the camera pointed down, and lands where it started. The phone logs the drone's GPS and a photo at each spot |
+| Any other drone | `manual` | **Working.** The app produces waypoints and the farmer enters them in the maker's app |
 | ArduPilot / Pixhawk | `mavlink` | Not built. The fallback certain to work on an agricultural airframe |
 
 **The 249 g drone cannot spray** — that is the whole aircraft, and there is no tank.
@@ -208,7 +225,7 @@ npx expo export --platform android --output-dir .check  # catches imports tsc ca
 npx expo-doctor                                         # 21/21
 ```
 
-en/hi/ta must carry identical key sets. Icons are generated, not hand-scaled — the
+All 13 locale files must carry identical key sets and placeholders. Icons are generated, not hand-scaled — the
 mark in `drikr-logo.png` is only 189 px, so anything cropped from it was a 5×
 enlargement; `python assets/source/make-icons.py --check` redraws it exactly and
 reports the fit.

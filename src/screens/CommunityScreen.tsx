@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert as RNAlert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -12,27 +13,32 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { cropProfile } from '../config/agronomy';
-import { enqueue } from '../services/offline';
-import { formatAge } from '../services/offline';
+import { currentUid, ensureSignedIn } from '../config/firebase';
+import { enqueue, formatAge } from '../services/offline';
+import { amIExpert, hidePost, reportPost, watchCommunity } from '../services/sync';
 import { usePlotState } from '../hooks/useTelemetry';
-import { addPost, addReply, toggleLike } from '../store/slices/communitySlice';
+import { addPost, setRemote, toggleLike } from '../store/slices/communitySlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { colors, radii, spacing, typography } from '../theme';
 import { CommunityPost } from '../types';
-import { AppHeader, Badge, Card, Pill, Screen } from '../components/ui';
+import { AppHeader, Badge, Card, EmptyState, Pill, Screen } from '../components/ui';
 
 /**
- * Farmer-to-farmer knowledge sharing.
+ * Farmer-to-farmer knowledge sharing, live across every phone.
  *
- * Posts are written locally first and queued for sync, so a farmer standing in a
- * field with no signal can still record what worked while it is fresh — which is
- * exactly when the advice is worth capturing.
+ * Posts are written locally first and queued, so a farmer with no signal can
+ * still record what worked; the shared feed comes from Firestore. Posts show a
+ * name and district, never a phone number. Anyone can report a post; moderators
+ * (agriculture experts the team adds) can hide it, and their own posts carry an
+ * "Expert" badge so farmers know whose advice is checked.
  */
 export default function CommunityScreen() {
   const dispatch = useAppDispatch();
   const { t } = useTranslation();
 
-  const posts = useAppSelector((s) => s.community.posts);
+  const local = useAppSelector((s) => s.community.posts ?? []);
+  const remote = useAppSelector((s) => s.community.remote ?? []);
+  const liked = useAppSelector((s) => s.community.liked ?? {});
   const profile = useAppSelector((s) => s.user.profile);
   const online = useAppSelector((s) => s.telemetry.online);
   const { plot } = usePlotState();
@@ -41,42 +47,118 @@ export default function CommunityScreen() {
   const [filter, setFilter] = useState<'all' | 'myCrop'>('all');
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [expert, setExpert] = useState(false);
 
-  const author = profile?.name ?? (profile?.phoneNumber ? `${profile.phoneNumber.slice(-4)}` : t('community.you'));
-  const myCrop = plot ? cropProfile(plot.crop).label : null;
+  useEffect(() => {
+    let stop = () => {};
+    let alive = true;
+    void (async () => {
+      await ensureSignedIn();
+      if (!alive) return;
+      void amIExpert().then((e) => alive && setExpert(e));
+      stop = watchCommunity((rows) => {
+        const posts = rows
+          // Old-format posts carried a phone number as the author; they are not shown.
+          .filter((r) => typeof r.authorUid === 'string' && r.authorUid && !r.hidden)
+          .map(
+            (r): CommunityPost => ({
+              id: String(r.id),
+              author: String(r.author ?? ''),
+              authorUid: String(r.authorUid),
+              district: r.district ? String(r.district) : undefined,
+              cropKey: r.cropKey ? String(r.cropKey) : undefined,
+              text: String(r.text ?? ''),
+              at: Number(r.at) || 0,
+              likes: Number(r.likes) || 0,
+              replies: [],
+              expert: Boolean(r.expert),
+              replyTo: r.replyTo ? String(r.replyTo) : undefined,
+            })
+          );
+        dispatch(setRemote(posts));
+      }, 200);
+    })();
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [dispatch]);
 
-  const filtered = useMemo(() => {
-    if (filter === 'myCrop' && myCrop) {
-      return posts.filter((p) => p.crop?.toLowerCase() === myCrop.toLowerCase());
-    }
-    return posts;
-  }, [posts, filter, myCrop]);
+  const author = profile?.name?.trim() || t('community.farmer');
+  const myCropKey = plot ? cropProfile(plot.crop).key : null;
 
-  const submit = () => {
-    const body = text.trim();
-    if (!body) return;
+  // Merge: the server copy wins; a local post shows until it has uploaded.
+  const all = useMemo(() => {
+    const byId = new Map<string, CommunityPost>();
+    for (const p of local) if (!p.id.startsWith('seed-')) byId.set(p.id, p);
+    for (const p of remote) byId.set(p.id, p);
+    return Array.from(byId.values()).sort((a, b) => b.at - a.at);
+  }, [local, remote]);
+
+  const replies = useMemo(() => {
+    const m: Record<string, CommunityPost[]> = {};
+    for (const p of all) if (p.replyTo) (m[p.replyTo] ??= []).push(p);
+    for (const k of Object.keys(m)) m[k].sort((a, b) => a.at - b.at);
+    return m;
+  }, [all]);
+
+  const top = useMemo(() => {
+    const posts = all.filter((p) => !p.replyTo);
+    return filter === 'myCrop' && myCropKey ? posts.filter((p) => p.cropKey === myCropKey) : posts;
+  }, [all, filter, myCropKey]);
+
+  const publish = (body: string, parent?: string) => {
     const post: CommunityPost = {
-      id: `p-${Date.now()}`,
+      id: `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       author,
+      authorUid: currentUid() ?? undefined,
       district: profile?.district,
-      crop: myCrop ?? undefined,
+      cropKey: myCropKey ?? undefined,
       text: body,
       at: Date.now(),
       likes: 0,
       replies: [],
+      ...(expert ? { expert: true } : null),
+      ...(parent ? { replyTo: parent } : null),
     };
     dispatch(addPost(post));
     void enqueue('communityPost', post);
+  };
+
+  const submit = () => {
+    const body = text.trim();
+    if (!body) return;
+    publish(body);
     setText('');
   };
 
   const submitReply = (postId: string) => {
     const body = replyText.trim();
     if (!body) return;
-    dispatch(addReply({ postId, author, text: body }));
+    publish(body, postId);
     setReplyText('');
     setReplyTo(null);
   };
+
+  const report = (post: CommunityPost) => {
+    const send = (reason: string) =>
+      void reportPost(post.id, reason).then((ok) =>
+        RNAlert.alert(ok ? t('community.reported') : t('community.reportFailed'))
+      );
+    RNAlert.alert(t('community.reportTitle'), t('community.reportBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('community.reasonWrong'), onPress: () => send('wrong advice') },
+      { text: t('community.reasonAbuse'), onPress: () => send('abuse or spam') },
+    ]);
+  };
+
+  const hide = (post: CommunityPost) =>
+    RNAlert.alert(t('community.hideTitle'), post.text.slice(0, 120), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('community.hide'), style: 'destructive', onPress: () => void hidePost(post.id) },
+    ]);
+
+  const mine = (p: CommunityPost) => p.authorUid != null && p.authorUid === currentUid();
 
   return (
     <Screen edges={['top']}>
@@ -86,35 +168,44 @@ export default function CommunityScreen() {
         right={!online ? <Badge label={t('community.willSync')} tone="warn" icon="cloud-offline" /> : undefined}
       />
 
-      {myCrop ? (
+      {myCropKey ? (
         <View style={s.filters}>
           <Pill label={t('community.allPosts')} active={filter === 'all'} onPress={() => setFilter('all')} />
-          <Pill label={myCrop} active={filter === 'myCrop'} onPress={() => setFilter('myCrop')} icon="leaf" />
+          <Pill
+            label={cropProfile(myCropKey).label}
+            active={filter === 'myCrop'}
+            onPress={() => setFilter('myCrop')}
+            icon="leaf"
+          />
         </View>
       ) : null}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <FlatList
-          data={filtered}
+          data={top}
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ paddingBottom: spacing.lg }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={<Text style={s.rules}>{t('community.rules')}</Text>}
+          ListEmptyComponent={
+            <EmptyState icon="people-outline" title={t('community.emptyTitle')} body={t('community.emptyBody')} />
+          }
           renderItem={({ item }) => (
             <Card>
               <View style={s.postTop}>
-                <View style={s.avatar}>
-                  <Text style={s.avatarText}>{item.author.charAt(0).toUpperCase()}</Text>
+                <View style={[s.avatar, item.expert && { backgroundColor: colors.brand }]}>
+                  <Text style={s.avatarText}>{(item.author || '?').charAt(0).toUpperCase()}</Text>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={s.author}>{item.author}</Text>
                   <Text style={s.postMeta}>
-                    {[item.district, item.crop].filter(Boolean).join(' · ')}
-                    {item.district || item.crop ? ' · ' : ''}
+                    {[item.district, item.cropKey ? cropProfile(item.cropKey).label : null].filter(Boolean).join(' · ')}
+                    {item.district || item.cropKey ? ' · ' : ''}
                     {formatAge(item.at)}
                   </Text>
                 </View>
-                {item.crop ? <Badge label={item.crop} tone="neutral" /> : null}
+                {item.expert ? <Badge label={t('community.expert')} tone="ok" icon="ribbon" /> : null}
               </View>
 
               <Text style={s.postText}>{item.text}</Text>
@@ -127,27 +218,37 @@ export default function CommunityScreen() {
                   accessibilityLabel={t('community.helpful')}
                 >
                   <Ionicons
-                    name={item.likedByMe ? 'heart' : 'heart-outline'}
+                    name={liked[item.id] ? 'thumbs-up' : 'thumbs-up-outline'}
                     size={16}
-                    color={item.likedByMe ? colors.danger : colors.textMuted}
+                    color={liked[item.id] ? colors.brand : colors.textMuted}
                   />
-                  <Text style={[s.actionText, item.likedByMe && { color: colors.danger }]}>{item.likes}</Text>
+                  <Text style={[s.actionText, liked[item.id] && { color: colors.brand }]}>{t('community.helpful')}</Text>
                 </Pressable>
-                <Pressable
-                  onPress={() => setReplyTo(replyTo === item.id ? null : item.id)}
-                  hitSlop={8}
-                  style={s.actionBtn}
-                >
+                <Pressable onPress={() => setReplyTo(replyTo === item.id ? null : item.id)} hitSlop={8} style={s.actionBtn}>
                   <Ionicons name="chatbubble-outline" size={15} color={colors.textMuted} />
-                  <Text style={s.actionText}>{item.replies.length}</Text>
+                  <Text style={s.actionText}>{(replies[item.id] ?? []).length}</Text>
                 </Pressable>
+                <View style={{ flex: 1 }} />
+                {expert && !mine(item) ? (
+                  <Pressable onPress={() => hide(item)} hitSlop={8} style={s.actionBtn} accessibilityLabel={t('community.hide')}>
+                    <Ionicons name="eye-off-outline" size={15} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
+                {!mine(item) ? (
+                  <Pressable onPress={() => report(item)} hitSlop={8} style={s.actionBtn} accessibilityLabel={t('community.report')}>
+                    <Ionicons name="flag-outline" size={15} color={colors.textMuted} />
+                  </Pressable>
+                ) : null}
               </View>
 
-              {item.replies.length > 0 ? (
+              {(replies[item.id] ?? []).length > 0 ? (
                 <View style={s.replies}>
-                  {item.replies.map((r) => (
+                  {(replies[item.id] ?? []).map((r) => (
                     <View key={r.id} style={s.reply}>
-                      <Text style={s.replyAuthor}>{r.author}</Text>
+                      <Text style={s.replyAuthor}>
+                        {r.author}
+                        {r.expert ? ` · ${t('community.expert')}` : ''}
+                      </Text>
                       <Text style={s.replyText}>{r.text}</Text>
                       <Text style={s.replyTime}>{formatAge(r.at)}</Text>
                     </View>
@@ -165,9 +266,10 @@ export default function CommunityScreen() {
                     onChangeText={setReplyText}
                     onSubmitEditing={() => submitReply(item.id)}
                     returnKeyType="send"
+                    maxLength={600}
                     autoFocus
                   />
-                  <Pressable onPress={() => submitReply(item.id)} style={s.replySend}>
+                  <Pressable onPress={() => submitReply(item.id)} style={s.replySend} accessibilityLabel={t('community.post')}>
                     <Ionicons name="arrow-up" size={16} color="#fff" />
                   </Pressable>
                 </View>
@@ -202,6 +304,7 @@ export default function CommunityScreen() {
 
 const s = StyleSheet.create({
   filters: { flexDirection: 'row', paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
+  rules: { ...typography.tiny, color: colors.textMuted, marginHorizontal: spacing.lg, marginBottom: spacing.sm, lineHeight: 16 },
   postTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   avatar: {
     width: 34,

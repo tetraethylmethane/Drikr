@@ -24,6 +24,8 @@ import {
   RecommendationList,
   riskTone,
 } from '../components/domain';
+import { soilName, stageName } from '../i18n/tr';
+import { currentStage } from '../config/agronomy';
 
 /**
  * Field Health Map — the deck's second mockup.
@@ -275,9 +277,9 @@ export default function FieldHealthMapScreen() {
       {/* Field summary */}
       <SectionTitle title={t('map.fieldSummary')} icon="information-circle" />
       <Card>
-        <SummaryRow label={t('fields.crop')} value={`${crop.label} · ${plot.stage}`} />
+        <SummaryRow label={t('fields.crop')} value={`${crop.label} · ${stageName(currentStage(plot))}`} />
         <SummaryRow label={t('fields.area')} value={`${plot.areaAcres} acre`} />
-        <SummaryRow label={t('fields.soil')} value={plot.soilType} />
+        <SummaryRow label={t('fields.soil')} value={soilName(plot.soilType)} />
         <SummaryRow label={t('fields.irrigation')} value={plot.irrigationType} />
         <SummaryRow
           label={t('map.gridResolution')}

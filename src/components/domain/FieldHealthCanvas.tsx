@@ -14,6 +14,7 @@ import Svg, {
 import { isInsideBoundary } from '../../services/healthMap';
 import { colors, healthColor, radii, spacing, typography } from '../../theme';
 import { GridRef, HealthMap, Plot, SensorNode } from '../../types';
+import { tr } from '../../i18n/tr';
 
 /**
  * The Field Health Map.
@@ -78,7 +79,7 @@ export function FieldHealthCanvas({
   };
 
   return (
-    <Pressable onPress={handlePress} accessibilityLabel={`${plot.name} health map, tap to inspect an area`}>
+    <Pressable onPress={handlePress} accessibilityLabel={tr('mapx.a11y', { plot: plot.name })}>
       <Svg width={size} height={size}>
         <Defs>
           <ClipPath id="fieldClip">
@@ -213,7 +214,7 @@ export function HealthLegend({ meanHealth }: { meanHealth?: number }) {
   return (
     <View style={s.legend}>
       <Text style={s.legendTitle}>
-        Crop Health Index{meanHealth != null ? ` · field average ${meanHealth}/100` : ''}
+        {tr('home.healthIndex')}{meanHealth != null ? ` · ${tr('mapx.average', { n: meanHealth })}` : ''}
       </Text>
       <View style={s.legendBar}>
         {colors.health.map((c) => (
@@ -221,9 +222,9 @@ export function HealthLegend({ meanHealth }: { meanHealth?: number }) {
         ))}
       </View>
       <View style={s.legendLabels}>
-        <Text style={s.legendLabel}>Healthy</Text>
-        <Text style={s.legendLabel}>Moderate</Text>
-        <Text style={s.legendLabel}>High Risk</Text>
+        <Text style={s.legendLabel}>{tr('map.healthy')}</Text>
+        <Text style={s.legendLabel}>{tr('map.moderate')}</Text>
+        <Text style={s.legendLabel}>{tr('map.highRisk')}</Text>
       </View>
     </View>
   );

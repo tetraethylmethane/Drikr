@@ -16,6 +16,7 @@ import {
   Severity,
   WeatherForecast,
 } from '../types';
+import { nameOf, stageName, tr } from '../i18n/tr';
 
 /**
  * Decision engine — the deck's "Prediction & Risk Scoring" + "Knowledge Base" stages.
@@ -166,16 +167,16 @@ export function assessIrrigation(ctx: EngineContext): RiskAssessment {
       value: reading.soilMoisture,
       unit: '%',
       note: waterlogged
-        ? `Above safe ceiling of ${band.critical[1]}%`
+        ? tr('engine.irr.noteAbove', { max: band.critical[1] })
         : deficit > 0
-          ? `${round(deficit)}% below the ${stage}-stage floor of ${floor}%`
-          : `Within the ${floor}-${band.ideal[1]}% target`,
+          ? tr('engine.irr.noteBelow', { deficit: round(deficit), stage: stageName(stage), floor })
+          : tr('engine.irr.noteWithin', { floor, max: band.ideal[1] }),
     },
     {
       metric: 'airTemp',
       value: reading.airTemp,
       unit: '°C',
-      note: vpdProxy > 0.35 ? 'High evaporative demand today' : 'Moderate evaporative demand',
+      note: vpdProxy > 0.35 ? tr('engine.irr.demandHigh') : tr('engine.irr.demandMod'),
     },
   ];
   if (forecast) {
@@ -185,15 +186,15 @@ export function assessIrrigation(ctx: EngineContext): RiskAssessment {
       unit: 'mm',
       note:
         rainRelief > 0.25
-          ? 'Rain expected in 24h — irrigation deferred'
-          : 'Little rain expected in the next 24h',
+          ? tr('engine.irr.rainSoon')
+          : tr('engine.irr.rainLittle'),
     });
   }
 
   const recommendations: Recommendation[] = [];
   if (waterlogged) {
     recommendations.push(
-      rec('irr-drain', 'irrigation', 'Open field drains and pause irrigation for 48 hours', 12, false)
+      rec('irr-drain', 'irrigation', tr('engine.irr.recDrain'), 12, false)
     );
   } else if (score >= 33) {
     // Sizing the dose from the actual deficit is what delivers the water saving.
@@ -203,20 +204,25 @@ export function assessIrrigation(ctx: EngineContext): RiskAssessment {
       rec(
         'irr-run',
         'irrigation',
-        `Irrigate ${plot.name} with ~${mmNeeded} mm (${litres.toLocaleString('en-IN')} L) via ${plot.irrigationType}`,
+        tr('engine.irr.recRun', {
+          plot: plot.name,
+          mm: mmNeeded,
+          litres: litres.toLocaleString('en-IN'),
+          method: tr(`setup.irrigation_${plot.irrigationType}`),
+        }),
         rainRelief > 0.25 ? 36 : 12,
         false,
-        `${plot.areaAcres} acre × ${mmNeeded} mm`
+        tr('engine.irr.hint', { acres: plot.areaAcres, mm: mmNeeded })
       )
     );
     if (vpdProxy > 0.4) {
       recommendations.push(
-        rec('irr-timing', 'irrigation', 'Irrigate before 8 AM or after 5 PM to cut evaporation loss', 24, false)
+        rec('irr-timing', 'irrigation', tr('engine.irr.recTiming'), 24, false)
       );
     }
   } else if (rainRelief > 0.25 && deficit > 0) {
     recommendations.push(
-      rec('irr-hold', 'irrigation', `Hold irrigation — ${round(rainNext24)} mm rain expected within 24h`, 24, false)
+      rec('irr-hold', 'irrigation', tr('engine.irr.recHold', { mm: round(rainNext24) }), 24, false)
     );
   }
 
@@ -234,19 +240,19 @@ export function assessIrrigation(ctx: EngineContext): RiskAssessment {
      * screen saying "adequate".
      */
     title: waterlogged
-      ? 'Waterlogging risk'
+      ? tr('engine.irr.tWaterlog')
       : score >= 62
-        ? 'Irrigation needed now'
+        ? tr('engine.irr.tNow')
         : score >= 33
-          ? 'Irrigation due soon'
+          ? tr('engine.irr.tSoon')
           : deficit > 0
-            ? 'Soil moisture below target'
-            : 'Soil moisture adequate',
+            ? tr('engine.irr.tBelow')
+            : tr('engine.irr.tOk'),
     detail: waterlogged
-      ? `Soil moisture ${reading.soilMoisture}% exceeds the safe ceiling for ${crop.label}; standing water risks root damage.`
+      ? tr('engine.irr.dWaterlog', { sm: reading.soilMoisture, crop: crop.label })
       : deficit > 0
-        ? `Soil moisture ${reading.soilMoisture}% is below the ${floor}% floor for the ${stage} stage of ${crop.label}.`
-        : `Soil moisture ${reading.soilMoisture}% is within the target band for ${crop.label} at ${stage}.`,
+        ? tr('engine.irr.dBelow', { sm: reading.soilMoisture, floor, stage: stageName(stage), crop: crop.label })
+        : tr('engine.irr.dOk', { sm: reading.soilMoisture, crop: crop.label, stage: stageName(stage) }),
     drivers,
     recommendations,
   };
@@ -284,19 +290,19 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
       metric: 'nitrogen',
       value: reading.nitrogen,
       unit: 'ppm',
-      note: nDef > 0.18 ? `${Math.round(nDef * 100)}% below the ${nTarget} ppm target` : 'Adequate',
+      note: nDef > 0.18 ? tr('engine.nut.belowTarget', { pct: Math.round(nDef * 100), target: nTarget }) : tr('engine.nut.adequate'),
     },
     {
       metric: 'phosphorus',
       value: reading.phosphorus,
       unit: 'ppm',
-      note: pDef > 0.18 ? `${Math.round(pDef * 100)}% below target` : 'Adequate',
+      note: pDef > 0.18 ? tr('engine.nut.below', { pct: Math.round(pDef * 100) }) : tr('engine.nut.adequate'),
     },
     {
       metric: 'potassium',
       value: reading.potassium,
       unit: 'ppm',
-      note: kDef > 0.18 ? `${Math.round(kDef * 100)}% below target` : 'Adequate',
+      note: kDef > 0.18 ? tr('engine.nut.below', { pct: Math.round(kDef * 100) }) : tr('engine.nut.adequate'),
     },
     {
       metric: 'ph',
@@ -304,10 +310,10 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
       unit: '',
       note:
         phDev.direction === 'ok'
-          ? 'Nutrient uptake unrestricted'
+          ? tr('engine.nut.phOk')
           : phDev.direction === 'low'
-            ? 'Acidic — locks up phosphorus'
-            : 'Alkaline — locks up iron and zinc',
+            ? tr('engine.nut.phLow')
+            : tr('engine.nut.phHigh'),
     },
   ];
   if (ecDev.dev > 0.2) {
@@ -315,14 +321,14 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
       metric: 'ec',
       value: reading.ec,
       unit: 'dS/m',
-      note: ecDev.direction === 'high' ? 'Salinity stress restricting uptake' : 'Very low salt — weak fertigation',
+      note: ecDev.direction === 'high' ? tr('engine.nut.ecHigh') : tr('engine.nut.ecLow'),
     });
   }
 
   const recommendations: Recommendation[] = [];
   if (nDef > 0.2) {
     recommendations.push(
-      rec('nut-n', 'nutrient', INPUT_SUGGESTIONS.nitrogen, 72, false, `${Math.round(nDef * 100)}% N deficit`)
+      rec('nut-n', 'nutrient', INPUT_SUGGESTIONS.nitrogen, 72, false, tr('engine.nut.nHint', { pct: Math.round(nDef * 100) }))
     );
   }
   if (pDef > 0.25) {
@@ -346,7 +352,7 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
     recommendations.push(rec('nut-ec', 'nutrient', INPUT_SUGGESTIONS.ec_high, 48, false));
   }
 
-  const worst = nDef >= pDef && nDef >= kDef ? 'Nitrogen' : pDef >= kDef ? 'Phosphorus' : 'Potassium';
+  const worst = nameOf(nDef >= pDef && nDef >= kDef ? 'Nitrogen' : pDef >= kDef ? 'Phosphorus' : 'Potassium');
   const worstDef = Math.max(nDef, pDef, kDef);
 
   /**
@@ -355,13 +361,13 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
    * P and K lands near 30 and would otherwise be announced as "balanced" — which is
    * exactly the reading a farmer would act wrongly on.
    */
+  const limited = score >= 33 || worstDef >= 0.25;
   const title =
     score >= 62 || worstDef >= 0.5
-      ? `${worst} deficiency`
-      : score >= 33 || worstDef >= 0.25
-        ? `Mild ${worst.toLowerCase()} shortfall`
-        : 'Nutrient levels balanced';
-  const limited = title !== 'Nutrient levels balanced';
+      ? tr('engine.nut.tDeficiency', { nutrient: worst })
+      : limited
+        ? tr('engine.nut.tMild', { nutrient: worst })
+        : tr('engine.nut.tBalanced');
 
   return {
     domain: 'nutrient',
@@ -371,8 +377,13 @@ export function assessNutrient(ctx: EngineContext): RiskAssessment {
     confidence: round(clamp01(evidenceQuality(ctx) * 0.94), 2),
     title,
     detail: limited
-      ? `${worst} is the limiting nutrient for ${crop.label} at this stage, ${Math.round(worstDef * 100)}% below target. Soil pH ${reading.ph} ${phDev.direction === 'ok' ? 'is not restricting uptake' : 'is restricting uptake'}.`
-      : `NPK is tracking the target band for ${crop.label} (${nTarget}/${pTarget}/${kTarget} ppm).`,
+      ? tr(phDev.direction === 'ok' ? 'engine.nut.dLimitedPhOk' : 'engine.nut.dLimitedPhBad', {
+          nutrient: worst,
+          crop: crop.label,
+          pct: Math.round(worstDef * 100),
+          ph: reading.ph,
+        })
+      : tr('engine.nut.dBalanced', { crop: crop.label, n: nTarget, p: pTarget, k: kTarget }),
     drivers,
     recommendations,
   };
@@ -416,49 +427,49 @@ export function assessPest(ctx: EngineContext): RiskAssessment {
    * list by temperature would imply a per-species model that does not exist here.
    * ScoutScreen shows the full candidate list for the farmer to check against.
    */
-  const likely = crop.commonPests[0];
+  const likely = nameOf(crop.commonPests[0]);
 
   const drivers: RiskAssessment['drivers'] = [
     {
       metric: 'pestActivity',
       value: reading.pestActivity,
       unit: '/100',
-      note: score >= 62 ? 'Composite pest pressure is high' : 'Composite pest pressure',
+      note: score >= 62 ? tr('engine.pest.pressureHigh') : tr('engine.pest.pressure'),
     },
     {
       metric: 'voc',
       value: reading.voc,
       unit: 'ppb',
-      note: vocLift > 0.3 ? 'Volatile signature consistent with feeding damage' : 'Canopy volatiles near baseline',
+      note: vocLift > 0.3 ? tr('engine.pest.vocHigh') : tr('engine.pest.vocOk'),
     },
     {
       metric: 'airTemp',
       value: reading.airTemp,
       unit: '°C',
-      note: warmth > 0.55 ? 'Warmth is accelerating pest generations' : 'Temperature moderately favourable',
+      note: warmth > 0.55 ? tr('engine.pest.warm') : tr('engine.pest.warmMod'),
     },
   ];
   if (trend > 0.15) {
     drivers.push({
       metric: 'pestActivity',
       value: round(trend * 100),
-      unit: '% rise',
-      note: 'Pressure has been rising over recent readings',
+      unit: '%',
+      note: tr('engine.pest.rising'),
     });
   }
 
   const recommendations: Recommendation[] = [];
   if (score >= 62) {
     recommendations.push(
-      rec('pest-spray', 'pest', `Spray ${INPUT_SUGGESTIONS.pest} within 24 hours`, 24, true, 'Targeted to affected cells')
+      rec('pest-spray', 'pest', tr('engine.pest.recSpray', { input: INPUT_SUGGESTIONS.pest }), 24, true, tr('engine.pest.recSprayHint'))
     );
-    recommendations.push(rec('pest-scout', 'pest', 'Monitor the affected area closely for fresh damage', 24, false));
+    recommendations.push(rec('pest-scout', 'pest', tr('engine.pest.recWatch'), 24, false));
     recommendations.push(
-      rec('pest-drone', 'pest', 'Drone inspection of the hot-spot to confirm before spraying', 6, true)
+      rec('pest-drone', 'pest', tr('engine.pest.recDrone'), 6, true)
     );
   } else if (score >= 33) {
-    recommendations.push(rec('pest-scout2', 'pest', `Scout for ${likely} egg masses on 10 plants per acre`, 48, false));
-    recommendations.push(rec('pest-trap', 'pest', 'Install 4 pheromone traps per acre and check every 3 days', 72, false));
+    recommendations.push(rec('pest-scout2', 'pest', tr('engine.pest.recEggs', { pest: likely }), 48, false));
+    recommendations.push(rec('pest-trap', 'pest', tr('engine.pest.recTrap'), 72, false));
   }
 
   return {
@@ -471,11 +482,11 @@ export function assessPest(ctx: EngineContext): RiskAssessment {
       clamp01(evidenceQuality(ctx) * (0.72 + vocLift * 0.18 + (trend > 0.15 ? 0.12 : 0))),
       2
     ),
-    title: score >= 62 ? 'Pest activity detected' : score >= 33 ? 'Pest pressure building' : 'Pest pressure low',
+    title: score >= 62 ? tr('engine.pest.tHigh') : score >= 33 ? tr('engine.pest.tMid') : tr('engine.pest.tLow'),
     detail:
       score >= 33
-        ? `High chance of ${likely} in ${plot.name}. Canopy volatiles at ${reading.voc} ppb with ${reading.humidity}% humidity favour rapid build-up.`
-        : `No significant pest signal in ${plot.name}. Continue routine scouting.`,
+        ? tr('engine.pest.dHigh', { pest: likely, plot: plot.name, voc: reading.voc, hum: reading.humidity })
+        : tr('engine.pest.dLow', { plot: plot.name }),
     drivers,
     recommendations,
   };
@@ -513,20 +524,20 @@ export function assessCropHealth(ctx: EngineContext): RiskAssessment {
   );
 
   // Ordered by prevalence, same reasoning as the pest naming above.
-  const likely = crop.commonDiseases[0];
+  const likely = nameOf(crop.commonDiseases[0]);
 
   const drivers: RiskAssessment['drivers'] = [
     {
       metric: 'leafWetness',
       value: reading.leafWetness,
       unit: '%',
-      note: `~${Math.round(wetHours)}h wet period — ${wetDrive > 0.5 ? 'infection window open' : 'below infection threshold'}`,
+      note: tr(wetDrive > 0.5 ? 'engine.dis.wetOpen' : 'engine.dis.wetBelow', { h: Math.round(wetHours) }),
     },
     {
       metric: 'humidity',
       value: reading.humidity,
       unit: '%',
-      note: humid > 0.3 ? 'Humidity sustaining spore viability' : 'Humidity not limiting',
+      note: humid > 0.3 ? tr('engine.dis.humHigh') : tr('engine.dis.humOk'),
     },
   ];
   if (hasBio) {
@@ -534,24 +545,24 @@ export function assessCropHealth(ctx: EngineContext): RiskAssessment {
       metric: 'voc',
       value: reading.biosensorNa!,
       unit: 'nA',
-      note: bio > 0.35 ? 'Biosensor current indicates pathogen presence' : 'Biosensor current near clean baseline',
+      note: bio > 0.35 ? tr('engine.dis.bioHigh') : tr('engine.dis.bioOk'),
     });
   }
 
   const recommendations: Recommendation[] = [];
   if (score >= 62) {
     recommendations.push(
-      rec('dis-spray', 'cropHealth', `Apply ${INPUT_SUGGESTIONS.disease} as a protectant spray`, 24, true)
+      rec('dis-spray', 'cropHealth', tr('engine.dis.recSpray', { input: INPUT_SUGGESTIONS.disease }), 24, true)
     );
     recommendations.push(
-      rec('dis-sanitation', 'cropHealth', 'Remove and destroy symptomatic leaves; avoid overhead irrigation', 24, false)
+      rec('dis-sanitation', 'cropHealth', tr('engine.dis.recClean'), 24, false)
     );
   } else if (score >= 33) {
     recommendations.push(
-      rec('dis-watch', 'cropHealth', `Inspect lower canopy for early ${likely} lesions`, 48, false)
+      rec('dis-watch', 'cropHealth', tr('engine.dis.recWatch', { disease: likely }), 48, false)
     );
     recommendations.push(
-      rec('dis-airflow', 'cropHealth', 'Improve canopy airflow; shift irrigation to morning', 48, false)
+      rec('dis-airflow', 'cropHealth', tr('engine.dis.recAir'), 48, false)
     );
   }
 
@@ -562,11 +573,17 @@ export function assessCropHealth(ctx: EngineContext): RiskAssessment {
     severity: severityForScore(score),
     // A biosensor-equipped node materially raises confidence in a disease claim.
     confidence: round(clamp01(evidenceQuality(ctx) * (hasBio ? 0.94 : 0.74)), 2),
-    title: score >= 62 ? `${likely} risk high` : score >= 33 ? 'Disease conditions forming' : 'Canopy healthy',
+    title: score >= 62 ? tr('engine.dis.tHigh', { disease: likely }) : score >= 33 ? tr('engine.dis.tMid') : tr('engine.dis.tLow'),
     detail:
       score >= 33
-        ? `Conditions favour ${likely} in ${crop.label}: ~${Math.round(wetHours)}h leaf wetness at ${reading.humidity}% humidity.${hasBio ? ` Biosensor reading ${reading.biosensorNa} nA.` : ''}`
-        : `Canopy conditions are unfavourable for the main ${crop.label} diseases.`,
+        ? tr(hasBio ? 'engine.dis.dHighBio' : 'engine.dis.dHigh', {
+            disease: likely,
+            crop: crop.label,
+            h: Math.round(wetHours),
+            hum: reading.humidity,
+            na: reading.biosensorNa,
+          })
+        : tr('engine.dis.dLow', { crop: crop.label }),
     drivers,
     recommendations,
   };
@@ -622,10 +639,10 @@ export function assessClimate(ctx: EngineContext): RiskAssessment {
       unit: '°C',
       note:
         heatNow.direction === 'high'
-          ? 'Above the crop comfort ceiling'
+          ? tr('engine.cli.hot')
           : heatNow.direction === 'low'
-            ? 'Below the crop comfort floor'
-            : 'Within comfort band',
+            ? tr('engine.cli.cold')
+            : tr('engine.cli.ok'),
     },
   ];
   if (forecast) {
@@ -633,35 +650,35 @@ export function assessClimate(ctx: EngineContext): RiskAssessment {
       metric: 'forecast',
       value: round(rain48),
       unit: 'mm/48h',
-      note: rainRisk > 0.2 ? 'Heavy rain may waterlog or lodge the crop' : 'Rainfall within manageable range',
+      note: rainRisk > 0.2 ? tr('engine.cli.rainHigh') : tr('engine.cli.rainOk'),
     });
     drivers.push({
       metric: 'windSpeed',
       value: round(windMax),
       unit: 'km/h',
-      note: windRisk > 0.2 ? 'Wind may damage crop and blocks drone flight' : 'Wind within safe limits',
+      note: windRisk > 0.2 ? tr('engine.cli.windHigh') : tr('engine.cli.windOk'),
     });
   }
 
   const recommendations: Recommendation[] = [];
   if (forecastHeat > 0.3 || (heatNow.direction === 'high' && heatNow.dev > 0.3)) {
     recommendations.push(
-      rec('cli-heat', 'climate', `Heat stress expected on ${hotDays || 1} of the next 3 days — irrigate in the evening to cool the canopy`, 24, false)
+      rec('cli-heat', 'climate', tr('engine.cli.recHeat', { days: hotDays || 1 }), 24, false)
     );
     if (currentStage(plot, reading.at) === 'flowering') {
       recommendations.push(
-        rec('cli-flower', 'climate', 'Flowering stage is heat-sensitive: consider a 0.5% KNO₃ foliar spray', 48, true)
+        rec('cli-flower', 'climate', tr('engine.cli.recFlower'), 48, true)
       );
     }
   }
   if (rainRisk > 0.25) {
     recommendations.push(
-      rec('cli-rain', 'climate', `${Math.round(rain48)} mm expected in 48h — clear field drains and defer fertiliser`, 24, false)
+      rec('cli-rain', 'climate', tr('engine.cli.recRain', { mm: Math.round(rain48) }), 24, false)
     );
   }
   if (windRisk > 0.3) {
     recommendations.push(
-      rec('cli-wind', 'climate', `Winds to ${Math.round(windMax)} km/h — drone operations will be blocked; stake tall crops`, 24, false)
+      rec('cli-wind', 'climate', tr('engine.cli.recWind', { wind: Math.round(windMax) }), 24, false)
     );
   }
 
@@ -673,14 +690,24 @@ export function assessClimate(ctx: EngineContext): RiskAssessment {
     confidence: round(clamp01(evidenceQuality(ctx) * (forecast ? 0.9 : 0.6)), 2),
     title:
       score >= 62
-        ? 'Climate risk high'
+        ? tr('engine.cli.tHigh')
         : score >= 33
-          ? 'Weather watch'
-          : 'Weather favourable',
+          ? tr('engine.cli.tMid')
+          : tr('engine.cli.tLow'),
     detail:
       score >= 33
-        ? `${plot.name} faces ${[forecastHeat > 0.3 ? 'heat stress' : null, rainRisk > 0.25 ? 'heavy rain' : null, windRisk > 0.3 ? 'high wind' : null].filter(Boolean).join(', ') || 'marginal conditions'} in the next 72 hours.`
-        : `No significant weather threat to ${crop.label} in the next 72 hours.`,
+        ? tr('engine.cli.dHigh', {
+            plot: plot.name,
+            threats:
+              [
+                forecastHeat > 0.3 ? tr('engine.cli.heat') : null,
+                rainRisk > 0.25 ? tr('engine.cli.rain') : null,
+                windRisk > 0.3 ? tr('engine.cli.wind') : null,
+              ]
+                .filter(Boolean)
+                .join(', ') || tr('engine.cli.marginal'),
+          })
+        : tr('engine.cli.dLow', { crop: crop.label }),
     drivers,
     recommendations,
   };
@@ -808,7 +835,7 @@ export function droneFlightCheck(
     if (hour < DRONE_LIMITS.minVisibilityHour || hour > DRONE_LIMITS.maxVisibilityHour) {
       // Daylight is the one limit a farmer cannot overrule: it is a clock, not
       // a judgement, and we know it exactly without any sensor.
-      return { ok: false, reason: 'Outside permitted daylight flight window' };
+      return { ok: false, reason: tr('engine.fly.daylight') };
     }
     if (!forecast) {
       // Nothing measured and nothing forecast. Rather than a dead end, ask the
@@ -816,11 +843,11 @@ export function droneFlightCheck(
       if (farmerCheck && Date.now() - farmerCheck.at < FARMER_CHECK_TTL_MS) {
         return farmerCheck.safe
           ? { ok: true, source: 'farmer' }
-          : { ok: false, reason: 'You reported conditions as unsafe', source: 'farmer' };
+          : { ok: false, reason: tr('engine.fly.farmerUnsafe'), source: 'farmer' };
       }
       return {
         ok: false,
-        reason: 'No sensor on this field and no forecast available',
+        reason: tr('engine.fly.noData'),
         needsFarmerCheck: true,
       };
     }
@@ -829,31 +856,31 @@ export function droneFlightCheck(
     if (gust) {
       return {
         ok: false,
-        reason: `Forecast wind ${Math.round(gust.wind)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit`,
+        reason: tr('engine.fly.windForecast', { wind: Math.round(gust.wind), max: DRONE_LIMITS.maxWindKmh }),
         source: 'forecast',
       };
     }
     const wet = soon.find((h) => h.precip > DRONE_LIMITS.maxRainMm);
     if (wet) {
-      return { ok: false, reason: 'Rain forecast within 3 hours', source: 'forecast' };
+      return { ok: false, reason: tr('engine.fly.rainSoon'), source: 'forecast' };
     }
     return { ok: true, source: 'forecast' };
   }
 
   if (reading.windSpeed > DRONE_LIMITS.maxWindKmh) {
-    return { ok: false, reason: `Wind ${Math.round(reading.windSpeed)} km/h exceeds the ${DRONE_LIMITS.maxWindKmh} km/h limit` };
+    return { ok: false, reason: tr('engine.fly.wind', { wind: Math.round(reading.windSpeed), max: DRONE_LIMITS.maxWindKmh }) };
   }
   if (reading.rainfall > DRONE_LIMITS.maxRainMm) {
-    return { ok: false, reason: `Active rainfall ${reading.rainfall} mm — spray would wash off` };
+    return { ok: false, reason: tr('engine.fly.raining', { mm: reading.rainfall }) };
   }
   const hour = new Date(reading.at).getHours();
   if (hour < DRONE_LIMITS.minVisibilityHour || hour > DRONE_LIMITS.maxVisibilityHour) {
-    return { ok: false, reason: 'Outside permitted daylight flight window' };
+    return { ok: false, reason: tr('engine.fly.daylight') };
   }
   if (forecast) {
     const nextHours = forecast.hourly.filter((h) => h.at > Date.now() && h.at < Date.now() + 3 * HOUR);
     if (nextHours.some((h) => h.wind > DRONE_LIMITS.maxWindKmh + 6)) {
-      return { ok: false, reason: 'Gusts forecast within 3 hours' };
+      return { ok: false, reason: tr('engine.fly.gusts') };
     }
   }
   return { ok: true };

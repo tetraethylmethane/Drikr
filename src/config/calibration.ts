@@ -1,4 +1,5 @@
 import { SensorMetric } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * ADS1115 analog channel calibration.
@@ -150,4 +151,13 @@ export function gasResistanceToVocIndex(kOhm: number): number | null {
   const CLEAN_AIR_KOHM = 50;
   const index = (CLEAN_AIR_KOHM / kOhm) * 150;
   return Math.round(clamp(index, 0, 900));
+}
+
+// Probe names follow the metric names, so they are translated with them.
+for (const ch of Object.values(ANALOG_CHANNELS)) {
+  const english = ch.label;
+  Object.defineProperty(ch, 'label', {
+    get: () => tr(`metrics.${ch.metric}`, { defaultValue: english }),
+    enumerable: true,
+  });
 }

@@ -1,6 +1,7 @@
 import { cropProfile, currentStage } from './agronomy';
 import { StatusTone } from '../theme';
 import { Plot, SensorMetric, SensorReading } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Presentation metadata for each sensor metric, plus the single place that decides
@@ -39,6 +40,16 @@ export const METRICS: Record<SensorMetric, MetricMeta> = {
   voc: { key: 'voc', label: 'VOC', unit: 'ppb', icon: 'analytics', dp: 0 },
 };
 
+// Labels read from the locale files, so every screen that shows METRICS[m].label
+// speaks the active language.
+for (const meta of Object.values(METRICS)) {
+  const english = meta.label;
+  Object.defineProperty(meta, 'label', {
+    get: () => tr(`metrics.${meta.key}`, { defaultValue: english }),
+    enumerable: true,
+  });
+}
+
 export const HEADLINE_METRICS: SensorMetric[] = (Object.values(METRICS) as MetricMeta[])
   .filter((m) => m.headline != null)
   .sort((a, b) => (a.headline ?? 99) - (b.headline ?? 99))
@@ -68,15 +79,15 @@ export function metricStatus(
   // only some of these fields, and scoring an absent value as 0 would show
   // "0 — Normal" for a probe that simply is not fitted.
   if (value == null || !Number.isFinite(value)) {
-    return { tone: 'neutral', label: 'No sensor' };
+    return { tone: 'neutral', label: tr('status.noSensor') };
   }
 
   const crop = cropProfile(plot?.crop);
 
   if (metric === 'pestActivity') {
-    if (value >= 62) return { tone: 'danger', label: 'Alert' };
-    if (value >= 33) return { tone: 'warn', label: 'High' };
-    return { tone: 'ok', label: 'Normal' };
+    if (value >= 62) return { tone: 'danger', label: tr('status.alert') };
+    if (value >= 33) return { tone: 'warn', label: tr('status.high') };
+    return { tone: 'ok', label: tr('status.normal') };
   }
 
   if (metric === 'nitrogen' || metric === 'phosphorus' || metric === 'potassium') {
@@ -87,30 +98,30 @@ export function metricStatus(
           ? crop.targetNpk.p
           : crop.targetNpk.k;
     const ratio = target > 0 ? value / target : 1;
-    if (ratio < 0.62) return { tone: 'danger', label: 'Very low' };
-    if (ratio < 0.82) return { tone: 'warn', label: 'Low' };
-    if (ratio > 1.45) return { tone: 'warn', label: 'Excess' };
-    return { tone: 'ok', label: 'Normal' };
+    if (ratio < 0.62) return { tone: 'danger', label: tr('status.veryLow') };
+    if (ratio < 0.82) return { tone: 'warn', label: tr('status.low') };
+    if (ratio > 1.45) return { tone: 'warn', label: tr('status.excess') };
+    return { tone: 'ok', label: tr('status.normal') };
   }
 
   if (metric === 'soilMoisture' && plot) {
     // Derived stage, not plot.stage — see currentStage() on why they must not diverge.
     const floor = crop.moistureFloorByStage[currentStage(plot)];
     const band = crop.bands.soilMoisture;
-    if (band && value > band.critical[1]) return { tone: 'danger', label: 'Waterlogged' };
-    if (value < floor * 0.8) return { tone: 'danger', label: 'Very low' };
-    if (value < floor) return { tone: 'warn', label: 'Low' };
-    return { tone: 'ok', label: 'Normal' };
+    if (band && value > band.critical[1]) return { tone: 'danger', label: tr('status.waterlogged') };
+    if (value < floor * 0.8) return { tone: 'danger', label: tr('status.veryLow') };
+    if (value < floor) return { tone: 'warn', label: tr('status.low') };
+    return { tone: 'ok', label: tr('status.normal') };
   }
 
   const band = crop.bands[metric];
   if (!band) return { tone: 'neutral', label: '—' };
 
-  if (value < band.critical[0]) return { tone: 'danger', label: 'Very low' };
-  if (value > band.critical[1]) return { tone: 'danger', label: 'Very high' };
-  if (value < band.ideal[0]) return { tone: 'warn', label: 'Low' };
-  if (value > band.ideal[1]) return { tone: 'warn', label: 'High' };
-  return { tone: 'ok', label: 'Normal' };
+  if (value < band.critical[0]) return { tone: 'danger', label: tr('status.veryLow') };
+  if (value > band.critical[1]) return { tone: 'danger', label: tr('status.veryHigh') };
+  if (value < band.ideal[0]) return { tone: 'warn', label: tr('status.low') };
+  if (value > band.ideal[1]) return { tone: 'warn', label: tr('status.high') };
+  return { tone: 'ok', label: tr('status.normal') };
 }
 
 export function formatMetric(metric: SensorMetric, value: number | null): string {

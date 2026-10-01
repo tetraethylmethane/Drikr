@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, spacing, typography } from '../../theme';
 import { Recommendation } from '../../types';
+import { tr } from '../../i18n/tr';
 
 /**
  * "Recommended Action" list from the mockup.
@@ -28,7 +29,7 @@ export function RecommendationList({
     return (
       <View style={s.clear}>
         <Ionicons name="checkmark-circle" size={17} color={colors.ok} />
-        <Text style={s.clearText}>No action needed right now. Keep to your routine schedule.</Text>
+        <Text style={s.clearText}>{tr('recx.none')}</Text>
       </View>
     );
   }
@@ -45,8 +46,8 @@ export function RecommendationList({
                 <Ionicons name="time-outline" size={11} color={colors.textMuted} />
                 <Text style={s.windowText}>
                   {r.windowHours <= 24
-                    ? `within ${r.windowHours}h`
-                    : `within ${Math.round(r.windowHours / 24)}d`}
+                    ? tr('recx.withinH', { n: r.windowHours })
+                    : tr('recx.withinD', { n: Math.round(r.windowHours / 24) })}
                 </Text>
               </View>
               {r.inputHint ? <Text style={s.hint}>{r.inputHint}</Text> : null}
@@ -59,7 +60,7 @@ export function RecommendationList({
                 onPress={() => onDrone(r)}
                 hitSlop={8}
                 style={s.droneBtn}
-                accessibilityLabel="Schedule drone for this action"
+                accessibilityLabel={tr('recx.drone')}
               >
                 <Ionicons name="paper-plane" size={13} color={colors.brand} />
               </Pressable>
@@ -69,7 +70,7 @@ export function RecommendationList({
                 onPress={() => onSpeak(r.text)}
                 hitSlop={8}
                 style={s.speakBtn}
-                accessibilityLabel="Read this aloud"
+                accessibilityLabel={tr('alerts.readAloud')}
               >
                 <Ionicons name="volume-medium" size={13} color={colors.textMuted} />
               </Pressable>

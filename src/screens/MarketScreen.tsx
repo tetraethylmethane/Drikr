@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import indianDistricts from '../config/indianDistricts';
-import { cropProfile } from '../config/agronomy';
-import { fetchPrices, sellSignal } from '../services/market';
+import { cropProfile, marketMatches } from '../config/agronomy';
+import { fetchPrices, nearbyOffers, NearbyOffer, recordAndReadTrend, sellSignal, stateForPoint } from '../services/market';
 import { formatAge } from '../services/offline';
 import { usePlotState } from '../hooks/useTelemetry';
-import { useAppSelector } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { setTransportCost } from '../store/slices/settingsSlice';
 import { colors, radii, spacing, typography } from '../theme';
 import { MarketPrice } from '../types';
 import { AppHeader, Badge, Button, Card, EmptyState, Pill, Screen, SectionTitle } from '../components/ui';
@@ -25,17 +26,34 @@ export default function MarketScreen() {
   const profile = useAppSelector((s) => s.user.profile);
   const online = useAppSelector((s) => s.telemetry.online);
 
+  const dispatch = useAppDispatch();
+  const transportCost = useAppSelector((s) => s.settings.transportCostPerQKm ?? 1);
   const [state, setState] = useState<string>(profile?.state ?? 'Tamil Nadu');
+  const [nearby, setNearby] = useState<NearbyOffer[] | null>(null);
+  const [trend, setTrend] = useState<Array<{ day: string; median: number }>>([]);
+  const [costText, setCostText] = useState(String(transportCost));
   const [district, setDistrict] = useState<string>(profile?.district ?? '');
   const [prices, setPrices] = useState<MarketPrice[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<{ at: number; cached: boolean; stale: boolean } | null>(null);
   const [picker, setPicker] = useState<'state' | 'district' | null>(null);
-  const [onlyMyCrop, setOnlyMyCrop] = useState(false);
+  // A farmer opens this to see the price of what they grow, so that is what
+  // shows first; the whole market is one tap away.
+  const [onlyMyCrop, setOnlyMyCrop] = useState(true);
 
   const districts = useMemo(() => indianDistricts[state] ?? [], [state]);
   const myCrop = plot ? cropProfile(plot.crop).label : null;
+  const cropKey = plot ? cropProfile(plot.crop).key : null;
+
+  // Open on the field's own state when the profile does not name one.
+  useEffect(() => {
+    if (profile?.state || !plot?.centroid) return;
+    void stateForPoint(plot.centroid).then((st) => {
+      if (st && indianDistricts[st]) setState(st);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plot?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,24 +63,52 @@ export default function MarketScreen() {
       setPrices(res.prices);
       setMeta({ at: res.fetchedAt, cached: res.fromCache, stale: res.stale });
       if (res.prices.length === 0) setError(t('market.noRecords'));
+      if (cropKey) void recordAndReadTrend(state, cropKey, res.prices).then(setTrend);
     } catch {
       setError(online ? t('market.fetchFailed') : t('market.offlineNoCache'));
       setPrices([]);
     } finally {
       setLoading(false);
     }
-  }, [state, district, online, t]);
+  }, [state, district, online, t, cropKey]);
+
+  // Nearest mandis by price after transport. Needs a state-wide price list,
+  // so it uses its own fetch rather than the district filter above.
+  useEffect(() => {
+    if (!cropKey || !plot?.centroid) return;
+    let alive = true;
+    setNearby(null);
+    void fetchPrices({ state, limit: 500 })
+      .then((res) => nearbyOffers(res.prices, cropKey, plot.centroid, transportCost))
+      .then((rows) => {
+        if (alive) setNearby(rows);
+      })
+      .catch(() => {
+        if (alive) setNearby([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [state, cropKey, plot?.centroid, transportCost]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    if (!onlyMyCrop || !myCrop) return prices;
-    return prices.filter((p) => p.commodity.toLowerCase().includes(myCrop.toLowerCase()));
-  }, [prices, onlyMyCrop, myCrop]);
+  const mine = useMemo(
+    () => (cropKey ? prices.filter((p) => marketMatches(cropKey, p.commodity)) : []),
+    [prices, cropKey]
+  );
+  // Nothing reported for their crop here today: say so and show everything,
+  // rather than an empty screen that looks broken.
+  const noneForMyCrop = Boolean(onlyMyCrop && myCrop && prices.length > 0 && mine.length === 0);
+  const filtered = onlyMyCrop && myCrop && mine.length > 0 ? mine : prices;
 
-  const signal = useMemo(() => (myCrop ? sellSignal(prices, myCrop) : null), [prices, myCrop]);
+  const signal = useMemo(() => (cropKey ? sellSignal(prices, cropKey) : null), [prices, cropKey]);
+  const trendPct =
+    trend.length >= 2 && trend[0].median > 0
+      ? Math.round(((trend[trend.length - 1].median - trend[0].median) / trend[0].median) * 100)
+      : null;
 
   return (
     <Screen>
@@ -121,6 +167,15 @@ export default function MarketScreen() {
               </Card>
             ) : null}
 
+            {noneForMyCrop ? (
+              <Card tone="info">
+                <View style={s.cacheRow}>
+                  <Ionicons name="information-circle" size={16} color={colors.info} />
+                  <Text style={[s.cacheText, { color: colors.info }]}>{t('market.noneForCrop', { crop: myCrop })}</Text>
+                </View>
+              </Card>
+            ) : null}
+
             {signal && signal.best && myCrop ? (
               <Card>
                 <Text style={s.signalTitle}>
@@ -138,6 +193,69 @@ export default function MarketScreen() {
                   ) : null}
                 </View>
                 <Text style={s.signalNote}>{t('market.spreadNote')}</Text>
+              </Card>
+            ) : null}
+
+            {myCrop && plot?.centroid ? (
+              <Card>
+                <Text style={s.signalTitle}>{t('market.nearbyTitle', { crop: myCrop })}</Text>
+                <View style={s.costRow}>
+                  <Text style={s.costLabel}>{t('market.transportCost')}</Text>
+                  <TextInput
+                    style={s.costInput}
+                    value={costText}
+                    onChangeText={setCostText}
+                    onEndEditing={() => {
+                      const v = parseFloat(costText);
+                      if (Number.isFinite(v) && v >= 0) dispatch(setTransportCost(v));
+                    }}
+                    keyboardType="decimal-pad"
+                  />
+                  <Text style={s.costLabel}>₹/q/km</Text>
+                </View>
+                {nearby === null ? (
+                  <ActivityIndicator color={colors.brand} style={{ marginTop: spacing.md }} />
+                ) : nearby.length === 0 ? (
+                  <Text style={s.signalNote}>{t('market.nearbyNone')}</Text>
+                ) : (
+                  nearby.slice(0, 5).map((o, i) => (
+                    <View key={`${o.price.market}-${i}`} style={s.nearRow}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={s.nearMarket} numberOfLines={1}>
+                          {i === 0 ? '★ ' : ''}
+                          {o.price.market}
+                        </Text>
+                        <Text style={s.signalNote}>
+                          {t('market.nearbyMeta', { km: o.km, price: o.price.modalPrice.toLocaleString('en-IN') })}
+                        </Text>
+                      </View>
+                      <Text style={s.nearNet}>₹{o.net.toLocaleString('en-IN')}</Text>
+                    </View>
+                  ))
+                )}
+                <Text style={s.signalNote}>{t('market.nearbyNote')}</Text>
+              </Card>
+            ) : null}
+
+            {myCrop && trend.length > 0 ? (
+              <Card>
+                <Text style={s.signalTitle}>{t('market.trendTitle', { crop: myCrop })}</Text>
+                {trendPct != null ? (
+                  <Badge
+                    label={t('market.trendChange', { pct: `${trendPct > 0 ? '+' : ''}${trendPct}`, days: trend.length })}
+                    tone={trendPct > 2 ? 'ok' : trendPct < -2 ? 'warn' : 'neutral'}
+                    icon={trendPct > 2 ? 'trending-up' : trendPct < -2 ? 'trending-down' : 'remove'}
+                  />
+                ) : null}
+                <View style={s.trendRow}>
+                  {trend.slice(-7).map((d) => (
+                    <View key={d.day} style={s.trendCell}>
+                      <Text style={s.trendPrice}>₹{d.median.toLocaleString('en-IN')}</Text>
+                      <Text style={s.trendDay}>{d.day.slice(5)}</Text>
+                    </View>
+                  ))}
+                </View>
+                <Text style={s.signalNote}>{trend.length < 3 ? t('market.trendBuilding') : t('market.trendNote')}</Text>
               </Card>
             ) : null}
 
@@ -188,7 +306,7 @@ export default function MarketScreen() {
             />
           )
         }
-        renderItem={({ item }) => <PriceRow price={item} highlight={myCrop != null && item.commodity.toLowerCase().includes(myCrop.toLowerCase())} />}
+        renderItem={({ item }) => <PriceRow price={item} highlight={cropKey != null && marketMatches(cropKey, item.commodity)} />}
       />
 
       {/* Picker */}
@@ -307,6 +425,25 @@ const s = StyleSheet.create({
   signalPrice: { fontSize: 26, fontWeight: '800', color: colors.text, letterSpacing: -0.7 },
   signalMeta: { ...typography.small, color: colors.textMuted, marginTop: 1 },
   signalNote: { ...typography.tiny, color: colors.textFaint, marginTop: spacing.sm, lineHeight: 15 },
+  costRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  costLabel: { ...typography.tiny, color: colors.textMuted },
+  costInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    minWidth: 54,
+    ...typography.small,
+    color: colors.text,
+  },
+  nearRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
+  nearMarket: { ...typography.bodyStrong, color: colors.text },
+  nearNet: { ...typography.h3, color: colors.ok },
+  trendRow: { flexDirection: 'row', gap: 4, marginTop: spacing.md },
+  trendCell: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: radii.md, backgroundColor: colors.surfaceAlt },
+  trendPrice: { fontSize: 10.5, fontWeight: '700', color: colors.text },
+  trendDay: { fontSize: 9, color: colors.textFaint, marginTop: 2 },
   yieldBody: { ...typography.small, color: colors.textMuted, lineHeight: 19 },
   yieldValue: { ...typography.h2, color: colors.ok, marginTop: spacing.sm },
   loading: { alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.sm },

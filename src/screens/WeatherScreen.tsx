@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -27,6 +27,9 @@ export default function WeatherScreen() {
   const online = useAppSelector((s) => s.telemetry.online);
 
   const width = Dimensions.get('window').width - spacing.lg * 4;
+  // The hour-by-hour charts answer a question most farmers are not asking;
+  // today, what it means, and the week come first.
+  const [showDetail, setShowDetail] = useState(false);
 
   const climateRisk = useMemo(
     () => assessment?.risks.find((r) => r.domain === 'climate') ?? null,
@@ -155,31 +158,6 @@ export default function WeatherScreen() {
         ) : null}
       </Card>
 
-      {/* Hourly */}
-      {hourly.length > 2 ? (
-        <>
-          <SectionTitle title={t('weather.next24h')} icon="time" />
-          <Card>
-            <Text style={s.chartTitle}>{t('weather.temp')}</Text>
-            <TrendChart
-              series={tempSeries}
-              width={width}
-              xLabels={xLabels}
-              threshold={tempCeiling}
-              thresholdLabel={t('weather.cropCeiling')}
-              height={140}
-            />
-            <ChartLegend series={tempSeries} />
-
-            <View style={s.chartDivider} />
-
-            <Text style={s.chartTitle}>{t('weather.rain')}</Text>
-            <TrendChart series={rainSeries} width={width} xLabels={xLabels} height={110} />
-            <ChartLegend series={rainSeries} />
-          </Card>
-        </>
-      ) : null}
-
       {/* 7-day */}
       <SectionTitle title={t('weather.forecast7')} icon="calendar" />
       <Card padded={false}>
@@ -226,6 +204,38 @@ export default function WeatherScreen() {
         </>
       ) : null}
 
+      <Pressable style={s.detailToggle} onPress={() => setShowDetail((v) => !v)}>
+        <Ionicons name={showDetail ? 'chevron-up' : 'chevron-down'} size={16} color={colors.brandLight} />
+        <Text style={s.detailToggleText}>{showDetail ? t('weather.lessDetail') : t('weather.moreDetail')}</Text>
+      </Pressable>
+
+      {showDetail ? (
+        <>
+      {/* Hourly */}
+      {hourly.length > 2 ? (
+        <>
+          <SectionTitle title={t('weather.next24h')} icon="time" />
+          <Card>
+            <Text style={s.chartTitle}>{t('weather.temp')}</Text>
+            <TrendChart
+              series={tempSeries}
+              width={width}
+              xLabels={xLabels}
+              threshold={tempCeiling}
+              thresholdLabel={t('weather.cropCeiling')}
+              height={140}
+            />
+            <ChartLegend series={tempSeries} />
+
+            <View style={s.chartDivider} />
+
+            <Text style={s.chartTitle}>{t('weather.rain')}</Text>
+            <TrendChart series={rainSeries} width={width} xLabels={xLabels} height={110} />
+            <ChartLegend series={rainSeries} />
+          </Card>
+        </>
+      ) : null}
+
       {snapshot ? (
         <Text style={s.footnote}>
           {t('weather.sensorCompare', {
@@ -233,6 +243,8 @@ export default function WeatherScreen() {
             station: Math.round(forecast.now.temp),
           })}
         </Text>
+      ) : null}
+        </>
       ) : null}
     </Screen>
   );
@@ -274,6 +286,14 @@ function DecisionRow({
 }
 
 const s = StyleSheet.create({
+  detailToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  detailToggleText: { ...typography.small, color: colors.brandLight, fontWeight: '700' },
   nowRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   nowTemp: { fontSize: 40, fontWeight: '800', color: colors.text, letterSpacing: -1.2 },
   nowLabel: { ...typography.body, color: colors.textMuted, marginTop: -2 },

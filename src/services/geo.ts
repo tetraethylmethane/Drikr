@@ -1,4 +1,5 @@
 import { GeoAnchor, GeoPoint, GridRef, Plot, PlotGeoref } from '../types';
+import { tr } from '../i18n/tr';
 
 /**
  * Georeferencing: turning the app's normalised field drawing into real coordinates.
@@ -165,7 +166,7 @@ export function checkGeoref(plot: Plot, georef: PlotGeoref | null | undefined): 
       separationM: 0,
       impliedAcres: null,
       areaRatio: null,
-      problems: ['This field has not been georeferenced yet.'],
+      problems: [tr('geo.notMarked')],
       warnings,
     };
   }
@@ -175,18 +176,21 @@ export function checkGeoref(plot: Plot, georef: PlotGeoref | null | undefined): 
   const tf = solve(georef);
 
   if (!tf) {
-    problems.push('The two anchor points are in the same place. Pick two different corners.');
+    problems.push(tr('geo.samePoint'));
   }
-  if (separationM < MIN_ANCHOR_SEPARATION_M) {
-    problems.push(
-      `The anchors are only ${Math.round(separationM)} m apart. Use two far-apart corners — diagonally opposite is best — or the field's direction cannot be worked out reliably.`
+  // Advice, not a block. Small fields are the norm for smallholders, and a
+  // refusal here stopped a user from flying at all. Close corners only make the
+  // field's direction less precise, which the warning says.
+  if (tf && separationM < MIN_ANCHOR_SEPARATION_M) {
+    warnings.push(
+      tr('geo.close', { m: Math.round(separationM) })
     );
   }
 
   const worstAccuracy = Math.max(a.accuracyM ?? 0, b.accuracyM ?? 0);
   if (worstAccuracy > 15) {
     warnings.push(
-      `GPS accuracy was only ±${Math.round(worstAccuracy)} m. Re-take the fixes under open sky for a tighter result.`
+      tr('geo.accuracy', { m: Math.round(worstAccuracy) })
     );
   }
 
@@ -197,13 +201,15 @@ export function checkGeoref(plot: Plot, georef: PlotGeoref | null | undefined): 
     impliedAcres = Math.round((sqm / SQM_PER_ACRE) * 100) / 100;
     if (plot.areaAcres > 0) {
       areaRatio = impliedAcres / plot.areaAcres;
+      // Also advice only: the acres a farmer types are a guess, and the GPS
+      // outline is usually the better number.
       if (areaRatio > 1.5 || areaRatio < 0.67) {
-        problems.push(
-          `This works out to ${impliedAcres} acre but the field is recorded as ${plot.areaAcres} acre. Check that each GPS fix was taken at the corner you tapped.`
+        warnings.push(
+          tr('geo.areaFar', { marked: impliedAcres, entered: plot.areaAcres })
         );
       } else if (areaRatio > 1.2 || areaRatio < 0.83) {
         warnings.push(
-          `This works out to ${impliedAcres} acre against the ${plot.areaAcres} acre recorded — close, but worth a second look.`
+          tr('geo.areaNear', { marked: impliedAcres, entered: plot.areaAcres })
         );
       }
     }

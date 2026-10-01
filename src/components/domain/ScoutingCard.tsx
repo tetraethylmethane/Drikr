@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { daysUntilDue, ScoutingPlan } from '../../services/scouting';
 import { colors, radii, spacing, typography } from '../../theme';
 import { Button, Card } from '../ui';
+import { nameOf } from '../../i18n/tr';
 
 /**
  * What a field with no sensors gets instead of a risk score.
@@ -69,7 +70,7 @@ export function ScoutingCard({
           {plan.open.map((o) => (
             <View key={o.window.disease} style={s.window}>
               <View style={s.windowHead}>
-                <Text style={s.windowName}>{o.window.disease}</Text>
+                <Text style={s.windowName}>{nameOf(o.window.disease)}</Text>
                 <View
                   style={[
                     s.tag,

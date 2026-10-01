@@ -23,11 +23,13 @@ import {
   saveLocalCredential,
   setSession,
 } from '../utils/session';
-import { LANGUAGES, useLanguage } from '../hooks/useLanguage';
+import { useLanguage } from '../hooks/useLanguage';
+import { LanguageButton } from '../components/domain/LanguagePicker';
 import { sessionChecked, signIn } from '../store/slices/userSlice';
 import { useAppDispatch } from '../store/hooks';
 import { colors, radii, shadow, spacing, typography } from '../theme';
 import { Button, Screen } from '../components/ui';
+import { setPrivacyAccepted } from '../store/slices/settingsSlice';
 
 /**
  * Phone + PIN sign-in.
@@ -56,6 +58,8 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   // True when Firestore could not be reached, so the UI can say so honestly.
   const [offline, setOffline] = useState(false);
+  // DPDP Act: consent is asked for, in the farmer's language, before an account exists.
+  const [agreed, setAgreed] = useState(false);
 
   const fullPhone = `${countryCode}${phone.replace(/\D/g, '')}`;
 
@@ -225,19 +229,7 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
           {/* Language first */}
           <View style={s.langRow}>
-            {LANGUAGES.map((l) => (
-              <Pressable
-                key={l.code}
-                onPress={() => change(l.code)}
-                style={({ pressed }) => [
-                  s.langChip,
-                  language === l.code && s.langChipActive,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={[s.langText, language === l.code && { color: '#fff' }]}>{l.native}</Text>
-              </Pressable>
-            ))}
+            <LanguageButton />
           </View>
 
           {/* Brand */}
@@ -334,11 +326,32 @@ export default function LoginScreen() {
 
                 {error ? <Text style={s.error}>{error}</Text> : null}
 
+                {isSignup ? (
+                  <Pressable
+                    style={s.consent}
+                    onPress={() => {
+                      const next = !agreed;
+                      setAgreed(next);
+                      if (next) dispatch(setPrivacyAccepted(Date.now()));
+                    }}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: agreed }}
+                  >
+                    <Ionicons name={agreed ? 'checkbox' : 'square-outline'} size={22} color={agreed ? colors.brand : colors.textMuted} />
+                    <Text style={s.consentText}>
+                      {t('login.consent')}{' '}
+                      <Text style={s.consentLink} onPress={() => navigation.navigate('Privacy')}>
+                        {t('login.readPrivacy')}
+                      </Text>
+                    </Text>
+                  </Pressable>
+                ) : null}
+
                 <Button
                   title={isSignup ? t('login.createAccount') : t('login.signIn')}
                   onPress={() => void (isSignup ? handleSignup() : handleLogin())}
                   loading={loading}
-                  disabled={pin.length < 4 || (isSignup && confirmPin.length < 4)}
+                  disabled={pin.length < 4 || (isSignup && (confirmPin.length < 4 || !agreed))}
                   size="lg"
                   style={{ marginTop: spacing.lg }}
                 />
@@ -358,19 +371,12 @@ export default function LoginScreen() {
 }
 
 const s = StyleSheet.create({
+  consent: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.lg },
+  consentText: { ...typography.small, color: colors.textMuted, flex: 1, lineHeight: 19 },
+  consentLink: { color: colors.brand, fontWeight: '700' },
   restoring: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
   langRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, paddingTop: spacing.md },
-  langChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 7,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  langChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  langText: { ...typography.small, color: colors.textMuted, fontWeight: '700' },
   brand: { alignItems: 'center', paddingTop: spacing.xxl, paddingBottom: spacing.xl },
   // No coloured tile behind it: the mark is black and reads best on the light
   // surface, which is how the logo is natively presented.
