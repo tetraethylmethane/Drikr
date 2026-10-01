@@ -384,6 +384,8 @@ export interface CommunityPost {
   hidden?: boolean;
   /** Set on a reply: the post it answers. Replies are documents of their own. */
   replyTo?: string;
+  /** App language the post was written in, so readers in another language can translate it. */
+  lang?: string;
   district?: string;
   crop?: string;
   text: string;

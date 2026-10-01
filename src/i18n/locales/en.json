@@ -430,7 +430,11 @@
     "reported": "Thank you. A moderator will look at it.",
     "reportFailed": "Could not send the report. Check the internet.",
     "hide": "Hide",
-    "hideTitle": "Hide this post for everyone?"
+    "hideTitle": "Hide this post for everyone?",
+    "translate": "Translate",
+    "showOriginal": "Show original",
+    "translating": "Translating…",
+    "translateFailed": "Could not translate. Check your internet."
   },
   "profit": {
     "title": "Costs and earnings",
@@ -1625,7 +1629,7 @@
     "whereTitle": "Where it is kept",
     "where": "On your phone, and in Google Firebase servers when you are online. Drone photos stay on your phone unless you share them.",
     "shareTitle": "Who sees it",
-    "share": "Community posts show your name and district - never your number. In drone booking, your number goes only to the operator who accepts your job. Questions to Kisan Mitra may be sent to Google Gemini to answer.",
+    "share": "Community posts show your name and district - never your number. In drone booking, your number goes only to the operator who accepts your job. Questions to Kisan Mitra may be sent to Google Gemini to answer. If you tap Translate on a post, its text goes to Bhashini, the Government of India's translation service.",
     "keepTitle": "How long",
     "keep": "Until you delete it. Sensor readings are kept by field, without your name or number.",
     "rightsTitle": "Your rights",

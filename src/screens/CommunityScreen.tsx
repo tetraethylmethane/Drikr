@@ -16,6 +16,7 @@ import { cropProfile } from '../config/agronomy';
 import { currentUid, ensureSignedIn } from '../config/firebase';
 import { enqueue, formatAge } from '../services/offline';
 import { amIExpert, hidePost, reportPost, watchCommunity } from '../services/sync';
+import { translateText, translationReady } from '../services/translate';
 import { usePlotState } from '../hooks/useTelemetry';
 import { addPost, setRemote, toggleLike } from '../store/slices/communitySlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -34,7 +35,7 @@ import { AppHeader, Badge, Card, EmptyState, Pill, Screen } from '../components/
  */
 export default function CommunityScreen() {
   const dispatch = useAppDispatch();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const local = useAppSelector((s) => s.community.posts ?? []);
   const remote = useAppSelector((s) => s.community.remote ?? []);
@@ -73,6 +74,7 @@ export default function CommunityScreen() {
               replies: [],
               expert: Boolean(r.expert),
               replyTo: r.replyTo ? String(r.replyTo) : undefined,
+              lang: r.lang ? String(r.lang) : undefined,
             })
           );
         dispatch(setRemote(posts));
@@ -120,6 +122,7 @@ export default function CommunityScreen() {
       replies: [],
       ...(expert ? { expert: true } : null),
       ...(parent ? { replyTo: parent } : null),
+      lang: i18n.language,
     };
     dispatch(addPost(post));
     void enqueue('communityPost', post);
@@ -208,7 +211,7 @@ export default function CommunityScreen() {
                 {item.expert ? <Badge label={t('community.expert')} tone="ok" icon="ribbon" /> : null}
               </View>
 
-              <Text style={s.postText}>{item.text}</Text>
+              <PostText text={item.text} lang={item.lang} style={s.postText} />
 
               <View style={s.postActions}>
                 <Pressable
@@ -249,7 +252,7 @@ export default function CommunityScreen() {
                         {r.author}
                         {r.expert ? ` · ${t('community.expert')}` : ''}
                       </Text>
-                      <Text style={s.replyText}>{r.text}</Text>
+                      <PostText text={r.text} lang={r.lang} style={s.replyText} />
                       <Text style={s.replyTime}>{formatAge(r.at)}</Text>
                     </View>
                   ))}
@@ -302,7 +305,50 @@ export default function CommunityScreen() {
   );
 }
 
+/**
+ * A post's text, with a Translate link when it was written in another
+ * language and Bhashini is configured. Tapping again shows the original.
+ */
+function PostText({ text, lang, style }: { text: string; lang?: string; style: object }) {
+  const { t, i18n } = useTranslation();
+  const mine = i18n.language;
+  const foreign = !!lang && lang !== mine;
+  const [ready, setReady] = useState(false);
+  const [shown, setShown] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setShown(null);
+    if (foreign) void translationReady().then(setReady);
+  }, [foreign, mine]);
+
+  const toggle = async () => {
+    if (shown) return setShown(null);
+    setBusy(true);
+    const out = await translateText(text, lang!, mine);
+    setBusy(false);
+    if (out) setShown(out);
+    else RNAlert.alert(t('community.translateFailed'));
+  };
+
+  return (
+    <View>
+      <Text style={style}>{shown ?? text}</Text>
+      {foreign && ready ? (
+        <Pressable onPress={() => void toggle()} hitSlop={8} disabled={busy} style={s.translateBtn}>
+          <Ionicons name="language-outline" size={14} color={colors.brand} />
+          <Text style={s.translateText}>
+            {busy ? t('community.translating') : shown ? t('community.showOriginal') : t('community.translate')}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
+  translateBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, alignSelf: 'flex-start' },
+  translateText: { ...typography.small, color: colors.brand, fontWeight: '700' },
   filters: { flexDirection: 'row', paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
   rules: { ...typography.tiny, color: colors.textMuted, marginHorizontal: spacing.lg, marginBottom: spacing.sm, lineHeight: 16 },
   postTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
