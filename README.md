@@ -3,7 +3,7 @@
 Sensors in the soil, the reasoning on the farmer's phone, and a drone that treats the
 affected patch instead of the whole field.
 
-Version **1.3.0** · Android · 13 Indian languages · 18 crops
+Version **1.3.1** · Android · 13 Indian languages · 18 crops
 
 ---
 

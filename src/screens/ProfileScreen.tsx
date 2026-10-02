@@ -9,7 +9,7 @@ import { hasCloudAi } from '../config/env';
 import { telemetrySource } from '../services/telemetry';
 import { cacheClear, outboxCount } from '../services/offline';
 import { requestPermission } from '../services/notifications';
-import { MAX_SMS_NUMBERS, normaliseNumber, requestSmsPermission, sendSms, smsAvailable, testText } from '../services/smsAlerts';
+import { composeSms, MAX_SMS_NUMBERS, normaliseNumber, testText } from '../services/smsAlerts';
 import { clearSession } from '../utils/session';
 import { clearPersistedState } from '../store/persist';
 import { useLanguage } from '../hooks/useLanguage';
@@ -149,7 +149,7 @@ export default function ProfileScreen() {
           }}
         />
       </Card>
-      {smsAvailable() ? <SmsCard /> : null}
+      <SmsCard />
 
       {/* Voice */}
       <SectionTitle title={t('profile.voice')} icon="mic" />
@@ -343,8 +343,9 @@ export default function ProfileScreen() {
 }
 
 /**
- * Urgent alerts as SMS from this phone's own SIM - free of any server or paid
- * plan. Bad numbers are dropped with a warning; the good ones are still saved.
+ * Family numbers for "Tell family by SMS". Sending opens the phone's own SMS
+ * app, so no SMS permission is needed (see smsAlerts.ts). Bad numbers are
+ * dropped with a warning; the good ones are still saved.
  */
 function SmsCard() {
   const { t } = useTranslation();
@@ -358,10 +359,6 @@ function SmsCard() {
     const typed = fields.map((f) => f.trim()).filter(Boolean);
     const good = typed.map(normaliseNumber).filter((n): n is string => !!n);
     const bad = typed.filter((f) => !normaliseNumber(f));
-    if (good.length && !(await requestSmsPermission())) {
-      RNAlert.alert(t('sms.title'), t('sms.noPermission'));
-      return null;
-    }
     dispatch(setSmsNumbers(good));
     setFields(Array.from({ length: MAX_SMS_NUMBERS }, (_, i) => good[i] ?? ''));
     const msg = good.length ? t('sms.saved') : t('sms.cleared');
@@ -372,8 +369,7 @@ function SmsCard() {
   const test = async () => {
     const numbers = await save();
     if (!numbers?.length) return;
-    const r = sendSms(numbers, testText());
-    RNAlert.alert(t('sms.title'), r ? t(r === 'no_permission' ? 'sms.noPermission' : r === 'no_sim' ? 'sms.noSim' : 'sms.failed') : t('sms.testSent'));
+    if (!(await composeSms(numbers, testText()))) RNAlert.alert(t('sms.title'), t('sms.failed'));
   };
 
   return (

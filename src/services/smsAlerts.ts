@@ -1,30 +1,19 @@
-import { PermissionsAndroid, Platform } from 'react-native';
-import { SmsAlert } from '../../modules/sms-alert';
+import { Linking } from 'react-native';
 import { tr } from '../i18n/tr';
 import { Alert } from '../types';
 
 /**
- * Urgent alerts as ordinary SMS, sent from the farmer's own SIM.
+ * Telling the family by SMS - with one tap, and no SMS permission.
  *
- * No gateway and no paid Firebase plan: the phone that raised the alert sends
- * it, so the cost is one SMS from the farmer's pack (most Indian plans include
- * 100 a day). It reaches the people the farmer chose - family, a field worker,
- * a keypad phone with no internet - even when they never open the app.
+ * The app used to send SMS itself, which needs SEND_SMS. For an APK installed
+ * from a website, Google Play Protect treats that permission as a fraud signal
+ * and blocks the install outright ("App blocked to protect your device"), and
+ * Google Play bans it for anything that is not an SMS app. So the app now opens
+ * the phone's own SMS app with the alert already written and the saved numbers
+ * filled in; the farmer only presses Send. It costs one SMS from their pack.
  */
 
-/** Only alerts worth interrupting someone for. */
-const SMS_SEVERITIES = new Set<Alert['severity']>(['critical', 'high']);
 export const MAX_SMS_NUMBERS = 3;
-
-export function smsAvailable(): boolean {
-  return Platform.OS === 'android' && !!SmsAlert && SmsAlert.canSend();
-}
-
-export async function requestSmsPermission(): Promise<boolean> {
-  if (!smsAvailable()) return false;
-  const res = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.SEND_SMS);
-  return res === PermissionsAndroid.RESULTS.GRANTED;
-}
 
 /** Digits only, with India's +91 assumed for a bare 10-digit number. */
 export function normaliseNumber(raw: string): string | null {
@@ -35,29 +24,23 @@ export function normaliseNumber(raw: string): string | null {
   return null;
 }
 
-function alertText(alert: Alert): string {
+/** The SMS text for one alert, short enough for a keypad phone. */
+export function familyAlertText(alert: Alert): string {
   const prefix = alert.severity === 'critical' ? tr('notify.urgent') : tr('notify.action');
   return `Drikr - ${prefix}: ${alert.title} (${alert.plotName}). ${alert.detail}`.slice(0, 300);
 }
 
-/** Send to every saved number. Returns the first failure reason, if any. */
-export function sendSms(numbers: string[], text: string): string | null {
-  if (!smsAvailable() || !SmsAlert) return 'no_sim';
-  let failure: string | null = null;
-  for (const n of numbers.slice(0, MAX_SMS_NUMBERS)) {
-    const r = SmsAlert.send(n, text);
-    if (r && !failure) failure = r;
-  }
-  return failure;
-}
-
-export function smsAlerts(alerts: Alert[], numbers: string[]): void {
-  if (!numbers.length || !smsAvailable()) return;
-  for (const a of alerts) {
-    if (SMS_SEVERITIES.has(a.severity)) sendSms(numbers, alertText(a));
-  }
-}
-
 export function testText(): string {
   return `Drikr: ${tr('sms.testBody')}`;
+}
+
+/** Opens the SMS app ready to send. False when the phone has no SMS app. */
+export async function composeSms(numbers: string[], text: string): Promise<boolean> {
+  const to = numbers.slice(0, MAX_SMS_NUMBERS).join(',');
+  try {
+    await Linking.openURL(`sms:${to}?body=${encodeURIComponent(text)}`);
+    return true;
+  } catch {
+    return false;
+  }
 }

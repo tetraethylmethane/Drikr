@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useVoice } from '../hooks/useVoice';
 import { useLanguage } from '../hooks/useLanguage';
-import { normaliseNumber, requestSmsPermission, smsAvailable } from '../services/smsAlerts';
+import { normaliseNumber } from '../services/smsAlerts';
 import { requestSensorKit } from '../services/sync';
 import { setSetupDone, setSharePhotos, setSmsNumbers } from '../store/slices/settingsSlice';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -92,9 +92,6 @@ export default function GuidedSetupScreen() {
     if (!n) {
       RNAlert.alert(t('sms.title'), t('sms.bad', { n: sms }));
       return;
-    }
-    if (smsAvailable() && !(await requestSmsPermission())) {
-      RNAlert.alert(t('sms.title'), t('sms.noPermission'));
     }
     dispatch(setSmsNumbers([n]));
     next();

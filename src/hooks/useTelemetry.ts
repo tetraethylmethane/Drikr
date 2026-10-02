@@ -4,7 +4,6 @@ import { assessPlot, PlotAssessment } from '../services/decisionEngine';
 import { generateAlerts } from '../services/alertEngine';
 import { buildHealthMap } from '../services/healthMap';
 import { notifyAlert } from '../services/notifications';
-import { smsAlerts } from '../services/smsAlerts';
 import { cacheGet, cacheSet, isOnline } from '../services/offline';
 import {
   buildSnapshot,
@@ -134,9 +133,6 @@ export function useTelemetryEngine() {
 
       if (fresh.length > 0) {
         dispatch(addAlerts(fresh));
-        // SMS goes out whether or not app notifications are on: it is for
-        // other people's phones. `fresh` is already deduped by the engine.
-        smsAlerts(fresh, stateRef.current.smsNumbers);
         if (stateRef.current.notificationsEnabled) {
           const seen = new Set(stateRef.current.notified);
           const toNotify = fresh.filter((a) => !seen.has(a.id));

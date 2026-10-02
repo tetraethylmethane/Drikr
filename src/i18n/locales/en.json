@@ -1294,18 +1294,16 @@
   },
   "sms": {
     "title": "SMS alerts",
-    "help": "Urgent alerts also go as an SMS from this phone to up to 3 numbers - family, a field worker, or a keypad phone. It uses your SIM's SMS pack; they need no internet and no app.",
+    "help": "When there is an urgent alert, tap \"Tell family by SMS\". Your SMS app opens with the alert written for these numbers; just press send. Up to 3 numbers, any phone.",
     "placeholder": "Mobile number",
     "save": "Save numbers",
     "test": "Send a test SMS",
     "saved": "Saved. Urgent alerts will also go by SMS.",
     "cleared": "SMS alerts are off.",
     "bad": "This number does not look right, so it was left out: {{n}}",
-    "noPermission": "Allow Drikr to send SMS to turn this on.",
-    "noSim": "This phone cannot send SMS.",
     "failed": "The SMS could not be sent. Check your SMS balance and signal.",
-    "testSent": "Test SMS sent.",
-    "testBody": "SMS alerts are working. Urgent field alerts will come here."
+    "testBody": "SMS alerts are working. Urgent field alerts will come here.",
+    "tellFamily": "Tell family by SMS"
   },
   "voice": {
     "noSpeech": "Did not hear anything. Try again.",
@@ -1661,7 +1659,7 @@
     "sensorsTitle": "Free sensors for your field",
     "sensorsBody": "Drikr gives you sensors for free and our team installs them. They watch your soil and weather all day.",
     "smsTitle": "Alerts for your family",
-    "smsBody": "Add one family member's number. Urgent alerts will also reach them by SMS, even on a basic phone.",
+    "smsBody": "Add one family member's number. When an urgent alert comes, one tap sends it to them by SMS, even to a basic phone.",
     "photosTitle": "Help the crop AI learn",
     "photosBody": "May we use your drone photos to train Drikr's crop AI? Only the photos and where they were taken are sent. You can change this any time in Privacy.",
     "voiceTitle": "Just talk to Drikr",

@@ -8,6 +8,8 @@ import { Alert, Plot, PlotSnapshot, Recommendation, RiskAssessment } from '../..
 import { Button, Card } from '../ui';
 import { VoiceCommand } from './VoiceCommand';
 import { GettingStarted } from './GettingStarted';
+import { composeSms, familyAlertText } from '../../services/smsAlerts';
+import { useAppSelector } from '../../store/hooks';
 
 // Read the home summary aloud once per app start, not on every visit.
 let readThisSession = false;
@@ -54,6 +56,7 @@ export function SimpleHome({
   autoRead?: boolean;
 }) {
   const { t } = useTranslation();
+  const familyNumbers = useAppSelector((s) => s.settings.smsNumbers) ?? [];
 
   // --- The one sentence ------------------------------------------------------
   let tone: StatusTone = 'ok';
@@ -151,6 +154,16 @@ export function SimpleHome({
         </View>
         {body ? <Text style={s.statusBody}>{body}</Text> : null}
         {action ? <Button title={action.label} onPress={action.onPress} style={{ marginTop: spacing.md }} /> : null}
+        {/* Urgent: one tap opens the SMS app with the alert written for the family. */}
+        {topAlert && familyNumbers.length && (topAlert.severity === 'critical' || topAlert.severity === 'high') ? (
+          <Button
+            title={t('sms.tellFamily')}
+            icon="chatbubble-ellipses"
+            variant="secondary"
+            onPress={() => void composeSms(familyNumbers, familyAlertText(topAlert))}
+            style={{ marginTop: spacing.sm }}
+          />
+        ) : null}
       </View>
 
       {/* Anything skipped in setup, until it is done. */}
